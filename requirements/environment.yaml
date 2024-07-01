@@ -1,0 +1,26 @@
+name: foleycrafter
+channels:
+  - pytorch
+  - nvidia
+dependencies:
+  - python=3.10
+  - pytorch=2.2.0
+  - torchvision=0.17.0
+  - pytorch-cuda=11.8
+  - pip
+  - pip:
+    - diffusers==0.25.1
+    - transformers==4.30.2
+    - xformers
+    - imageio==2.33.1
+    - decord==0.6.0
+    - einops
+    - omegaconf
+    - safetensors
+    - gradio
+    - tqdm==4.66.1
+    - soundfile==0.12.1
+    - wandb
+    - moviepy==1.0.3
+    - kornia==0.7.1
+    - h5py==3.7.0
