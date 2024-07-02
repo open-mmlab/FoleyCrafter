@@ -19,9 +19,8 @@ import torch.nn as nn
 import torch.utils.checkpoint
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
-from diffusers.utils.import_utils import is_xformers_available, is_torch_version
-from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate, logging, scale_lora_layers, unscale_lora_layers
 from diffusers.models.activations import get_activation
+
 # from diffusers import StableDiffusionGLIGENPipeline
 from diffusers.models.attention_processor import (
     ADDED_KV_ATTENTION_PROCESSORS,
@@ -37,7 +36,6 @@ from diffusers.models.embeddings import (
     ImageHintTimeEmbedding,
     ImageProjection,
     ImageTimeEmbedding,
-    PositionNet,
     TextImageProjection,
     TextImageTimeEmbedding,
     TextTimeEmbedding,
@@ -45,7 +43,11 @@ from diffusers.models.embeddings import (
     Timesteps,
 )
 from diffusers.models.modeling_utils import ModelMixin
-
+from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate, logging, scale_lora_layers, unscale_lora_layers
+from diffusers.utils.import_utils import is_xformers_available
+from foleycrafter.models.adapters.ip_adapter import TimeProjModel
+from foleycrafter.models.auffusion.attention_processor import AttnProcessor2_0
+from foleycrafter.models.auffusion.loaders.unet import UNet2DConditionLoadersMixin
 from foleycrafter.models.auffusion.unet_2d_blocks import (
     UNetMidBlock2D,
     UNetMidBlock2DCrossAttn,
@@ -54,10 +56,6 @@ from foleycrafter.models.auffusion.unet_2d_blocks import (
     get_up_block,
 )
 
-from foleycrafter.models.auffusion.attention_processor\
-    import AttnProcessor2_0
-from foleycrafter.models.adapters.ip_adapter import TimeProjModel
-from foleycrafter.models.auffusion.loaders.unet import UNet2DConditionLoadersMixin
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -227,11 +225,10 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
         mid_block_only_cross_attention: Optional[bool] = None,
         cross_attention_norm: Optional[str] = None,
         addition_embed_type_num_heads=64,
-
         # param for joint
-        video_feature_dim: tuple=(320, 640, 1280, 1280),
-        video_cross_attn_dim: int=1024,
-        video_frame_nums: int=16,
+        video_feature_dim: tuple = (320, 640, 1280, 1280),
+        video_cross_attn_dim: int = 1024,
+        video_frame_nums: int = 16,
     ):
         super().__init__()
 
@@ -629,39 +626,39 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             feature_type = "text-only" if attention_type == "gated" else "text-image"
             self.position_net = TimeProjModel(
                 positive_len=positive_len, out_dim=cross_attention_dim, feature_type=feature_type
-            ) 
-    
+            )
+
         # additional settings
-        self.video_feature_dim    = video_feature_dim 
-        self.cross_attention_dim  = cross_attention_dim
+        self.video_feature_dim = video_feature_dim
+        self.cross_attention_dim = cross_attention_dim
         self.video_cross_attn_dim = video_cross_attn_dim
-        self.video_frame_nums     = video_frame_nums
+        self.video_frame_nums = video_frame_nums
 
         self.multi_frames_condition = False
 
     def load_attention(self):
         attn_dict = {}
         for name in self.attn_processors.keys():
-            # if self-attention, save feature 
+            # if self-attention, save feature
             if name.endswith("attn1.processor"):
                 if is_xformers_available():
                     attn_dict[name] = XFormersAttnProcessor()
                 else:
-                    attn_dict[name] = AttnProcessor() 
+                    attn_dict[name] = AttnProcessor()
             else:
                 attn_dict[name] = AttnProcessor2_0()
         self.set_attn_processor(attn_dict)
 
     def get_writer_feature(self):
         return self.attn_feature_writer.get_cross_attention_feature()
-    
+
     def clear_writer_feature(self):
         self.attn_feature_writer.clear_cross_attention_feature()
 
     def disable_feature_adapters(self):
         raise NotImplementedError
-    
-    def set_reader_feature(self, features:list):
+
+    def set_reader_feature(self, features: list):
         return self.attn_feature_reader.set_cross_attention_feature(features)
 
     @property
@@ -1116,7 +1113,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 image_embeds = [image_embed.to(encoder_hidden_states.dtype) for image_embed in image_embeds]
             else:
                 image_embeds = image_embeds.to(encoder_hidden_states.dtype)
-            encoder_hidden_states = (encoder_hidden_states, image_embeds) 
+            encoder_hidden_states = (encoder_hidden_states, image_embeds)
             # encoder_hidden_states = torch.cat([encoder_hidden_states, image_embeds], dim=1)
         # import ipdb; ipdb.set_trace()
         # 2. pre-process

@@ -2,9 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from diffusers.utils import logging 
+from diffusers.utils import logging
+
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+
 
 class AttnProcessor(nn.Module):
     r"""
@@ -207,7 +209,7 @@ class AttnProcessor2_0(torch.nn.Module):
         encoder_hidden_states=None,
         attention_mask=None,
         temb=None,
-    ):  
+    ):
         residual = hidden_states
 
         if attn.spatial_norm is not None:
@@ -273,7 +275,8 @@ class AttnProcessor2_0(torch.nn.Module):
         hidden_states = hidden_states / attn.rescale_output_factor
 
         return hidden_states
-    
+
+
 class AttnProcessor2_0WithProjection(torch.nn.Module):
     r"""
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
@@ -298,7 +301,7 @@ class AttnProcessor2_0WithProjection(torch.nn.Module):
         encoder_hidden_states=None,
         attention_mask=None,
         temb=None,
-    ):  
+    ):
         residual = hidden_states
         # encoder_hidden_states = self.visual_proj(encoder_hidden_states)
 
@@ -365,7 +368,8 @@ class AttnProcessor2_0WithProjection(torch.nn.Module):
         hidden_states = hidden_states / attn.rescale_output_factor
 
         return hidden_states
-    
+
+
 class IPAttnProcessor2_0(torch.nn.Module):
     r"""
     Attention processor for IP-Adapater for PyTorch 2.0.
@@ -474,7 +478,7 @@ class IPAttnProcessor2_0(torch.nn.Module):
         )
         with torch.no_grad():
             self.attn_map = query @ ip_key.transpose(-2, -1).softmax(dim=-1)
-            #print(self.attn_map.shape)
+            # print(self.attn_map.shape)
 
         ip_hidden_states = ip_hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
         ip_hidden_states = ip_hidden_states.to(query.dtype)
@@ -495,6 +499,7 @@ class IPAttnProcessor2_0(torch.nn.Module):
         hidden_states = hidden_states / attn.rescale_output_factor
 
         return hidden_states
+
 
 ## for controlnet
 class CNAttnProcessor:

@@ -20,7 +20,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from diffusers.utils import USE_PEFT_BACKEND
 from diffusers.models.activations import get_activation
 from diffusers.models.downsampling import (  # noqa
     Downsample1D,
@@ -39,6 +38,7 @@ from diffusers.models.upsampling import (  # noqa
     upfirdn2d_native,
     upsample_2d,
 )
+from diffusers.utils import USE_PEFT_BACKEND
 from foleycrafter.models.auffusion.attention_processor import SpatialNorm
 
 

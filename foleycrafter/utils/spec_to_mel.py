@@ -1,12 +1,15 @@
-import torch
-import torchaudio
-import torch.nn.functional as F
-import numpy as np
-from scipy.signal import get_window
 import librosa.util as librosa_util
-from librosa.util import pad_center, tiny
+import numpy as np
+import torch
+import torch.nn.functional as F
+import torchaudio
 from librosa.filters import mel as librosa_mel_fn
+from librosa.util import pad_center, tiny
+from scipy.signal import get_window
+
+
 # spectrogram to mel
+
 
 class STFT(torch.nn.Module):
     """adapted from Prem Seetharaman's https://github.com/pseeth/pytorch-stft"""
@@ -22,14 +25,10 @@ class STFT(torch.nn.Module):
         fourier_basis = np.fft.fft(np.eye(self.filter_length))
 
         cutoff = int((self.filter_length / 2 + 1))
-        fourier_basis = np.vstack(
-            [np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])]
-        )
+        fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
 
         forward_basis = torch.FloatTensor(fourier_basis[:, None, :])
-        inverse_basis = torch.FloatTensor(
-            np.linalg.pinv(scale * fourier_basis).T[:, None, :]
-        )
+        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, None, :])
 
         if window is not None:
             assert filter_length >= win_length
@@ -77,9 +76,7 @@ class STFT(torch.nn.Module):
         return magnitude, phase
 
     def inverse(self, magnitude, phase):
-        recombine_magnitude_phase = torch.cat(
-            [magnitude * torch.cos(phase), magnitude * torch.sin(phase)], dim=1
-        )
+        recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase), magnitude * torch.sin(phase)], dim=1)
 
         inverse_transform = F.conv_transpose1d(
             recombine_magnitude_phase,
@@ -98,16 +95,10 @@ class STFT(torch.nn.Module):
                 dtype=np.float32,
             )
             # remove modulation effects
-            approx_nonzero_indices = torch.from_numpy(
-                np.where(window_sum > tiny(window_sum))[0]
-            )
-            window_sum = torch.autograd.Variable(
-                torch.from_numpy(window_sum), requires_grad=False
-            )
+            approx_nonzero_indices = torch.from_numpy(np.where(window_sum > tiny(window_sum))[0])
+            window_sum = torch.autograd.Variable(torch.from_numpy(window_sum), requires_grad=False)
             window_sum = window_sum
-            inverse_transform[:, :, approx_nonzero_indices] /= window_sum[
-                approx_nonzero_indices
-            ]
+            inverse_transform[:, :, approx_nonzero_indices] /= window_sum[approx_nonzero_indices]
 
             # scale by hop ratio
             inverse_transform *= float(self.filter_length) / self.hop_length
@@ -121,7 +112,8 @@ class STFT(torch.nn.Module):
         self.magnitude, self.phase = self.transform(input_data)
         reconstruction = self.inverse(self.magnitude, self.phase)
         return reconstruction
-    
+
+
 def window_sumsquare(
     window,
     n_frames,
@@ -199,6 +191,7 @@ def griffin_lim(magnitudes, stft_fn, n_iters=30):
         signal = stft_fn.inverse(magnitudes, angles).squeeze(1)
     return signal
 
+
 def dynamic_range_compression(x, normalize_fun=torch.log, C=1, clip_val=1e-5):
     """
     PARAMS
@@ -214,7 +207,9 @@ def dynamic_range_decompression(x, C=1):
     ------
     C: compression factor used to compress
     """
-    return torch.exp(x) / C 
+    return torch.exp(x) / C
+
+
 class TacotronSTFT(torch.nn.Module):
     def __init__(
         self,
@@ -230,9 +225,7 @@ class TacotronSTFT(torch.nn.Module):
         self.n_mel_channels = n_mel_channels
         self.sampling_rate = sampling_rate
         self.stft_fn = STFT(filter_length, hop_length, win_length)
-        mel_basis = librosa_mel_fn(
-            sampling_rate, filter_length, n_mel_channels, mel_fmin, mel_fmax
-        )
+        mel_basis = librosa_mel_fn(sampling_rate, filter_length, n_mel_channels, mel_fmin, mel_fmax)
         mel_basis = torch.from_numpy(mel_basis).float()
         self.register_buffer("mel_basis", mel_basis)
 
@@ -266,23 +259,26 @@ class TacotronSTFT(torch.nn.Module):
         log_magnitudes = self.spectral_normalize(magnitudes, normalize_fun)
 
         return mel_output, log_magnitudes, energy
-    
+
+
 def pad_wav(waveform, segment_length):
     waveform_length = waveform.shape[-1]
     assert waveform_length > 100, "Waveform is too short, %s" % waveform_length
     if segment_length is None or waveform_length == segment_length:
         return waveform
     elif waveform_length > segment_length:
-        return waveform[:,:segment_length]
+        return waveform[:, :segment_length]
     elif waveform_length < segment_length:
         temp_wav = np.zeros((1, segment_length))
         temp_wav[:, :waveform_length] = waveform
     return temp_wav
 
+
 def normalize_wav(waveform):
     waveform = waveform - np.mean(waveform)
     waveform = waveform / (np.max(np.abs(waveform)) + 1e-8)
     return waveform * 0.5
+
 
 def _pad_spec(fbank, target_length=1024):
     n_frames = fbank.shape[0]
@@ -299,20 +295,20 @@ def _pad_spec(fbank, target_length=1024):
 
     return fbank
 
+
 def get_mel_from_wav(audio, _stft):
     audio = torch.clip(torch.FloatTensor(audio).unsqueeze(0), -1, 1)
     audio = torch.autograd.Variable(audio, requires_grad=False)
     melspec, log_magnitudes_stft, energy = _stft.mel_spectrogram(audio)
     melspec = torch.squeeze(melspec, 0).numpy().astype(np.float32)
-    log_magnitudes_stft = (
-        torch.squeeze(log_magnitudes_stft, 0).numpy().astype(np.float32)
-    )
+    log_magnitudes_stft = torch.squeeze(log_magnitudes_stft, 0).numpy().astype(np.float32)
     energy = torch.squeeze(energy, 0).numpy().astype(np.float32)
-    return melspec, log_magnitudes_stft, energy 
+    return melspec, log_magnitudes_stft, energy
+
 
 def read_wav_file_io(bytes):
     # waveform, sr = librosa.load(filename, sr=None, mono=True) # 4 times slower
-    waveform, sr = torchaudio.load(bytes, format='mp4')  # Faster!!!
+    waveform, sr = torchaudio.load(bytes, format="mp4")  # Faster!!!
     waveform = torchaudio.functional.resample(waveform, orig_freq=sr, new_freq=16000)
     # waveform = waveform.numpy()[0, ...]
     # waveform = normalize_wav(waveform)
@@ -320,13 +316,15 @@ def read_wav_file_io(bytes):
 
     # waveform = waveform / (np.max(np.abs(waveform)) + 1e-8)
     # waveform = 0.5 * waveform
-    
+
     return waveform
 
+
 def load_audio(bytes, sample_rate=16000):
-    waveform, sr = torchaudio.load(bytes, format='mp4')
+    waveform, sr = torchaudio.load(bytes, format="mp4")
     waveform = torchaudio.functional.resample(waveform, orig_freq=sr, new_freq=sample_rate)
     return waveform
+
 
 def read_wav_file(filename):
     # waveform, sr = librosa.load(filename, sr=None, mono=True) # 4 times slower
@@ -335,11 +333,12 @@ def read_wav_file(filename):
     waveform = waveform.numpy()[0, ...]
     waveform = normalize_wav(waveform)
     waveform = waveform[None, ...]
-    
+
     waveform = waveform / np.max(np.abs(waveform))
     waveform = 0.5 * waveform
-    
+
     return waveform
+
 
 def norm_wav_tensor(waveform: torch.FloatTensor):
     waveform = waveform.numpy()[0, ...]
@@ -349,16 +348,17 @@ def norm_wav_tensor(waveform: torch.FloatTensor):
     waveform = 0.5 * waveform
     return waveform
 
+
 def wav_to_fbank(filename, target_length=1024, fn_STFT=None):
     if fn_STFT is None:
         fn_STFT = TacotronSTFT(
-            1024, # filter_length
-            160, # hop_length
-            1024, # win_length
-            64, # n_mel
-            16000, # sample_rate
-            0, # fmin
-            8000, # fmax
+            1024,  # filter_length
+            160,  # hop_length
+            1024,  # win_length
+            64,  # n_mel
+            16000,  # sample_rate
+            0,  # fmin
+            8000,  # fmax
         )
 
     # mixup
@@ -372,31 +372,28 @@ def wav_to_fbank(filename, target_length=1024, fn_STFT=None):
     fbank = torch.FloatTensor(fbank.T)
     log_magnitudes_stft = torch.FloatTensor(log_magnitudes_stft.T)
 
-    fbank, log_magnitudes_stft = _pad_spec(fbank, target_length), _pad_spec(
-        log_magnitudes_stft, target_length
-    )
+    fbank, log_magnitudes_stft = _pad_spec(fbank, target_length), _pad_spec(log_magnitudes_stft, target_length)
 
     return fbank, log_magnitudes_stft, waveform
+
 
 def wav_tensor_to_fbank(waveform, target_length=512, fn_STFT=None):
     if fn_STFT is None:
         fn_STFT = TacotronSTFT(
-            1024, # filter_length
-            160, # hop_length
-            1024, # win_length
-            256, # n_mel
-            16000, # sample_rate
-            0, # fmin
-            8000, # fmax
-        ) # In practice used
+            1024,  # filter_length
+            160,  # hop_length
+            1024,  # win_length
+            256,  # n_mel
+            16000,  # sample_rate
+            0,  # fmin
+            8000,  # fmax
+        )  # In practice used
 
     fbank, log_magnitudes_stft, energy = get_mel_from_wav(waveform, fn_STFT)
 
-    fbank = torch.FloatTensor(fbank.T) 
+    fbank = torch.FloatTensor(fbank.T)
     log_magnitudes_stft = torch.FloatTensor(log_magnitudes_stft.T)
 
-    fbank, log_magnitudes_stft = _pad_spec(fbank, target_length), _pad_spec(
-        log_magnitudes_stft, target_length
-    )
+    fbank, log_magnitudes_stft = _pad_spec(fbank, target_length), _pad_spec(log_magnitudes_stft, target_length)
 
     return fbank

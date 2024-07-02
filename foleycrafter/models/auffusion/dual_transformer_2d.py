@@ -15,8 +15,7 @@ from typing import Optional
 
 from torch import nn
 
-from foleycrafter.models.auffusion.transformer_2d \
-    import Transformer2DModel, Transformer2DModelOutput
+from foleycrafter.models.auffusion.transformer_2d import Transformer2DModel, Transformer2DModelOutput
 
 
 class DualTransformer2DModel(nn.Module):

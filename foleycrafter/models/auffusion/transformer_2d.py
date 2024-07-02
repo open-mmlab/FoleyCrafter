@@ -19,14 +19,13 @@ import torch.nn.functional as F
 from torch import nn
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
-from diffusers.models.embeddings import ImagePositionalEmbeddings
-from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate, is_torch_version
-from diffusers.models.embeddings import PatchEmbed, PixArtAlphaTextProjection
+from diffusers.models.embeddings import ImagePositionalEmbeddings, PatchEmbed, PixArtAlphaTextProjection
 from diffusers.models.lora import LoRACompatibleConv, LoRACompatibleLinear
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle
-
+from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate, is_torch_version
 from foleycrafter.models.auffusion.attention import BasicTransformerBlock
+
 
 @dataclass
 class Transformer2DModelOutput(BaseOutput):
@@ -40,6 +39,7 @@ class Transformer2DModelOutput(BaseOutput):
     """
 
     sample: torch.FloatTensor
+
 
 class Transformer2DModel(ModelMixin, ConfigMixin):
     """
@@ -319,7 +319,7 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
         # Retrieve lora scale.
         lora_scale = cross_attention_kwargs.get("scale", 1.0) if cross_attention_kwargs is not None else 1.0
 
-        # 1. Input 
+        # 1. Input
         if self.is_input_continuous:
             batch, _, height, width = hidden_states.shape
             inner_dim = hidden_states.shape[1]

@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
 
+
 class IPAdapter(torch.nn.Module):
     """IP-Adapter"""
+
     def __init__(self, unet, image_proj_model, adapter_modules, ckpt_path=None):
         super().__init__()
         self.unet = unet
@@ -40,6 +42,7 @@ class IPAdapter(torch.nn.Module):
 
         print(f"Successfully loaded weights from checkpoint {ckpt_path}")
 
+
 class ImageProjModel(torch.nn.Module):
     """Projection Model"""
 
@@ -62,6 +65,7 @@ class ImageProjModel(torch.nn.Module):
 
 class MLPProjModel(torch.nn.Module):
     """SD model with image prompt"""
+
     def zero_initialize(module):
         for param in module.parameters():
             param.data.zero_()
@@ -77,21 +81,21 @@ class MLPProjModel(torch.nn.Module):
             last_layer.bias.data.zero_()
 
     def __init__(self, cross_attention_dim=1024, clip_embeddings_dim=1024):
-        
         super().__init__()
-        
+
         self.proj = torch.nn.Sequential(
             torch.nn.Linear(clip_embeddings_dim, clip_embeddings_dim),
             torch.nn.GELU(),
             torch.nn.Linear(clip_embeddings_dim, cross_attention_dim),
-            torch.nn.LayerNorm(cross_attention_dim)
+            torch.nn.LayerNorm(cross_attention_dim),
         )
         # zero initialize the last layer
         # self.zero_initialize_last_layer()
-        
+
     def forward(self, image_embeds):
         clip_extra_context_tokens = self.proj(image_embeds)
         return clip_extra_context_tokens
+
 
 class V2AMapperMLP(torch.nn.Module):
     def __init__(self, cross_attention_dim=512, clip_embeddings_dim=512, mult=4):
@@ -100,20 +104,21 @@ class V2AMapperMLP(torch.nn.Module):
             torch.nn.Linear(clip_embeddings_dim, clip_embeddings_dim * mult),
             torch.nn.GELU(),
             torch.nn.Linear(clip_embeddings_dim * mult, cross_attention_dim),
-            torch.nn.LayerNorm(cross_attention_dim)
+            torch.nn.LayerNorm(cross_attention_dim),
         )
 
     def forward(self, image_embeds):
         clip_extra_context_tokens = self.proj(image_embeds)
         return clip_extra_context_tokens
 
+
 class TimeProjModel(torch.nn.Module):
-    def __init__(self, positive_len, out_dim, feature_type="text-only", frame_nums:int=64):
+    def __init__(self, positive_len, out_dim, feature_type="text-only", frame_nums: int = 64):
         super().__init__()
         self.positive_len = positive_len
         self.out_dim = out_dim
 
-        self.position_dim = frame_nums 
+        self.position_dim = frame_nums
 
         if isinstance(out_dim, tuple):
             out_dim = out_dim[0]
@@ -177,8 +182,8 @@ class TimeProjModel(torch.nn.Module):
 
             objs = self.linears(torch.cat([positive_embeddings, time_embeds], dim=-1))
 
-        # positionet with text and image infomation
+        # positionet with text and image information
         else:
-            raise NotImplementedError 
+            raise NotImplementedError
 
-        return objs    
+        return objs

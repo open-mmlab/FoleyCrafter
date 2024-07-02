@@ -11,12 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import inspect
 import os
 from collections import defaultdict
 from contextlib import nullcontext
 from functools import partial
-from typing import Callable, Dict, List, Optional, Union, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import safetensors
 import torch
@@ -24,21 +23,24 @@ import torch.nn.functional as F
 from huggingface_hub.utils import validate_hf_hub_args
 from torch import nn
 
-from diffusers.models.embeddings import ImageProjection, MLPProjection, Resampler
+from diffusers.loaders.utils import AttnProcsLayers
+from diffusers.models.embeddings import ImageProjection
 from diffusers.models.modeling_utils import _LOW_CPU_MEM_USAGE_DEFAULT, load_model_dict_into_meta
 from diffusers.utils import (
     USE_PEFT_BACKEND,
     _get_model_file,
     delete_adapter_layers,
     is_accelerate_available,
-    logging,
     is_torch_version,
+    logging,
     set_adapter_layers,
     set_weights_and_activate_adapters,
 )
-from diffusers.loaders.utils import AttnProcsLayers
-
-from foleycrafter.models.auffusion.attention_processor import IPAdapterAttnProcessor2_0, VPTemporalAdapterAttnProcessor2_0, AttnProcessor2_0
+from foleycrafter.models.auffusion.attention_processor import (
+    AttnProcessor2_0,
+    IPAdapterAttnProcessor2_0,
+    VPTemporalAdapterAttnProcessor2_0,
+)
 
 
 if is_accelerate_available():
@@ -46,6 +48,7 @@ if is_accelerate_available():
     from accelerate.hooks import AlignDevicesHook, CpuOffload, remove_hook_from_module
 
 logger = logging.get_logger(__name__)
+
 
 class VPAdapterImageProjection(nn.Module):
     def __init__(self, IPAdapterImageProjectionLayers: Union[List[nn.Module], Tuple[nn.Module]]):
@@ -61,7 +64,7 @@ class VPAdapterImageProjection(nn.Module):
         if not isinstance(image_embeds, list):
             deprecation_message = (
                 "You have passed a tensor as `image_embeds`.This is deprecated and will be removed in a future release."
-                " Please make sure to update your script to pass `image_embeds` as a list of tensors to supress this warning."
+                " Please make sure to update your script to pass `image_embeds` as a list of tensors to suppress this warning."
             )
             image_embeds = [image_embeds.unsqueeze(1)]
 
@@ -81,6 +84,7 @@ class VPAdapterImageProjection(nn.Module):
 
         return projected_image_embeds
 
+
 class MultiIPAdapterImageProjection(nn.Module):
     def __init__(self, IPAdapterImageProjectionLayers: Union[List[nn.Module], Tuple[nn.Module]]):
         super().__init__()
@@ -95,7 +99,7 @@ class MultiIPAdapterImageProjection(nn.Module):
         if not isinstance(image_embeds, list):
             deprecation_message = (
                 "You have passed a tensor as `image_embeds`.This is deprecated and will be removed in a future release."
-                " Please make sure to update your script to pass `image_embeds` as a list of tensors to supress this warning."
+                " Please make sure to update your script to pass `image_embeds` as a list of tensors to suppress this warning."
             )
             image_embeds = [image_embeds.unsqueeze(1)]
 
@@ -819,14 +823,16 @@ class UNet2DConditionLoadersMixin:
                 block_id = int(name[len("down_blocks.")])
                 hidden_size = self.config.block_out_channels[block_id]
 
-            if cross_attention_dim is None or "motion_modules" in name or 'fuser' in name:
+            if cross_attention_dim is None or "motion_modules" in name or "fuser" in name:
                 attn_processor_class = (
                     AttnProcessor2_0 if hasattr(F, "scaled_dot_product_attention") else AttnProcessor
                 )
                 attn_procs[name] = attn_processor_class()
             else:
                 attn_processor_class = (
-                    VPTemporalAdapterAttnProcessor2_0 if hasattr(F, "scaled_dot_product_attention") else IPAdapterAttnProcessor
+                    VPTemporalAdapterAttnProcessor2_0
+                    if hasattr(F, "scaled_dot_product_attention")
+                    else IPAdapterAttnProcessor
                 )
                 num_image_text_embeds = []
                 for state_dict in state_dicts:
@@ -863,7 +869,7 @@ class UNet2DConditionLoadersMixin:
                 key_id += 2
 
         return attn_procs
-    
+
     def _convert_ip_adapter_attn_to_diffusers(self, state_dicts, low_cpu_mem_usage=False):
         from diffusers.models.attention_processor import (
             AttnProcessor,
@@ -904,7 +910,7 @@ class UNet2DConditionLoadersMixin:
                 block_id = int(name[len("down_blocks.")])
                 hidden_size = self.config.block_out_channels[block_id]
 
-            if cross_attention_dim is None or "motion_modules" in name or 'fuser' in name:
+            if cross_attention_dim is None or "motion_modules" in name or "fuser" in name:
                 attn_processor_class = (
                     AttnProcessor2_0 if hasattr(F, "scaled_dot_product_attention") else AttnProcessor
                 )
@@ -967,7 +973,9 @@ class UNet2DConditionLoadersMixin:
         self.to(dtype=self.dtype, device=self.device)
 
     def _load_ip_adapter_weights_VPAdapter(self, state_dicts, low_cpu_mem_usage=False):
-        attn_procs = self._convert_ip_adapter_attn_to_diffusers_VPAdapter(state_dicts, low_cpu_mem_usage=low_cpu_mem_usage)
+        attn_procs = self._convert_ip_adapter_attn_to_diffusers_VPAdapter(
+            state_dicts, low_cpu_mem_usage=low_cpu_mem_usage
+        )
         self.set_attn_processor(attn_procs)
 
         # convert IP-Adapter Image Projection layers to diffusers

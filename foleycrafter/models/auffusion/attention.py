@@ -17,15 +17,14 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from diffusers.utils import USE_PEFT_BACKEND
-from diffusers.utils.torch_utils import maybe_allow_in_graph
 from diffusers.models.activations import GEGLU, GELU, ApproximateGELU
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding
 from diffusers.models.lora import LoRACompatibleLinear
-from diffusers.models.normalization import\
-        AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, RMSNorm
-
+from diffusers.models.normalization import AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, RMSNorm
+from diffusers.utils import USE_PEFT_BACKEND
+from diffusers.utils.torch_utils import maybe_allow_in_graph
 from foleycrafter.models.auffusion.attention_processor import Attention
+
 
 def _chunked_feed_forward(
     ff: nn.Module, hidden_states: torch.Tensor, chunk_dim: int, chunk_size: int, lora_scale: Optional[float] = None
@@ -43,7 +42,7 @@ def _chunked_feed_forward(
             dim=chunk_dim,
         )
     else:
-        # TOOD(Patrick): LoRA scale can be removed once PEFT refactor is complete
+        # TODO(Patrick): LoRA scale can be removed once PEFT refactor is complete
         ff_output = torch.cat(
             [ff(hid_slice, scale=lora_scale) for hid_slice in hidden_states.chunk(num_chunks, dim=chunk_dim)],
             dim=chunk_dim,
@@ -363,7 +362,7 @@ class BasicTransformerBlock(nn.Module):
 
             if self.pos_embed is not None and self.use_ada_layer_norm_single is False:
                 norm_hidden_states = self.pos_embed(norm_hidden_states)
-            
+
             attn_output = self.attn2(
                 norm_hidden_states,
                 encoder_hidden_states=encoder_hidden_states,

@@ -374,18 +374,18 @@ options:
 ```
 
 
-<!-- ## Train
-To train FoleyCrafter, run the training script of semantic/temporal adapter individually.
+## BibTex
+```
+@misc{zhang2024pia,
+  title={FoleyCrafter: Bring Silent Videos to Life with Lifelike and Synchronized Sounds},
+  author={Yiming Zhang, Yicheng Gu, Yanhong Zeng, Zhening Xing, Yuancheng Wang, Zhizheng Wu, Kai Chen},
+  year={2024},
+  eprint={2407.01494},
+  archivePrefix={arXiv},
+  primaryClass={cs.CV}
+}
+```
 
-```bash
-# semantic adapter
-python train/train_semantic_adapter.py \
---config=configs/train/train_semantic_adapter.yaml
-
-# temporal adapter
-python train/train_temporal_adapter.py \
---config=configs/train/train_temporal_adapter.yaml
-``` -->
 
 ## Contact Us
 

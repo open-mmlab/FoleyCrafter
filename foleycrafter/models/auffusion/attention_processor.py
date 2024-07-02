@@ -11,20 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import math
 from importlib import import_module
-from typing import Callable, Optional, Union, List
+from typing import Callable, List, Optional, Union
 
 import torch
 import torch.nn.functional as F
-from torch import nn
-import math
-
 from einops import rearrange
+from torch import nn
 
+from diffusers.models.lora import LoRACompatibleLinear, LoRALinearLayer
 from diffusers.utils import USE_PEFT_BACKEND, deprecate, logging
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.utils.torch_utils import maybe_allow_in_graph
-from diffusers.models.lora import LoRACompatibleLinear, LoRALinearLayer
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -441,7 +440,7 @@ class Attention(nn.Module):
         # If doesn't apply LoRA do `add_k_proj` or `add_v_proj`
         is_lora_activated.pop("add_k_proj", None)
         is_lora_activated.pop("add_v_proj", None)
-        # 2. else it is not posssible that only some layers have LoRA activated
+        # 2. else it is not possible that only some layers have LoRA activated
         if not all(is_lora_activated.values()):
             raise ValueError(
                 f"Make sure that either all layers or no layers have LoRA activated, but have {is_lora_activated}"
@@ -2213,6 +2212,7 @@ class IPAdapterAttnProcessor(nn.Module):
 
         return hidden_states
 
+
 class VPTemporalAdapterAttnProcessor2_0(torch.nn.Module):
     r"""
     Attention processor for IP-Adapter for PyTorch 2.0.
@@ -2232,7 +2232,7 @@ class VPTemporalAdapterAttnProcessor2_0(torch.nn.Module):
     Support frame-wise VP-Adapter
     encoder_hidden_states : I(num of ip_adapters), B, N * T(num of time condition), C
     ip_adapter_masks(bool): (I, B, N * T, C) == encoder_hidden_states.shape
-    
+
     """
 
     def __init__(self, hidden_size, cross_attention_dim=None, num_tokens=(4,), scale=1.0):
@@ -2383,46 +2383,53 @@ class VPTemporalAdapterAttnProcessor2_0(torch.nn.Module):
             elif scale == 0:
                 skip = True
             if not skip:
-                    time_condition_masks = None
-                    for time_condition in time_conditions:
-                        # hard code
-                        time_condition_mask = torch.zeros((
-                            batch_size, 
-                            int(math.sqrt(hidden_states.shape[1]) // 2),
-                            int(2 * math.sqrt(hidden_states.shape[1])),
-                        )).bool().to(device=hidden_states.device)
-                        mel_latent_length = time_condition_mask.shape[-1]
-                        time_start, time_end = \
-                            int(time_condition[0] // audio_length_in_s * mel_latent_length),\
-                            int(time_condition[1] // audio_length_in_s * mel_latent_length)
-
-                        time_condition_mask[:, :, time_start:time_end] = True
-                        time_condition_mask = time_condition_mask.flatten(-2).unsqueeze(-1).repeat(1, 1, 4)
-                        if time_condition_masks is None:
-                            time_condition_masks = time_condition_mask
-                        else:
-                            time_condition_masks = torch.cat([time_condition_masks, time_condition_mask], dim=-1)
-
-                    current_ip_hidden_states = rearrange(current_ip_hidden_states, 'L B N C -> B (L N) C')
-                    ip_key = to_k_ip(current_ip_hidden_states)
-                    ip_value = to_v_ip(current_ip_hidden_states)
-
-                    ip_key = ip_key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-                    ip_value = ip_value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-                    time_condition_masks = time_condition_masks.unsqueeze(1).repeat(1, attn.heads, 1, 1)
-
-                    # the output of sdp = (batch, num_heads, seq_len, head_dim)
-                    # TODO: add support for attn.scale when we move to Torch 2.1
-                    current_ip_hidden_states = F.scaled_dot_product_attention(
-                        query, ip_key, ip_value, attn_mask=time_condition_masks, dropout_p=0.0, is_causal=False
+                time_condition_masks = None
+                for time_condition in time_conditions:
+                    # hard code
+                    time_condition_mask = (
+                        torch.zeros(
+                            (
+                                batch_size,
+                                int(math.sqrt(hidden_states.shape[1]) // 2),
+                                int(2 * math.sqrt(hidden_states.shape[1])),
+                            )
+                        )
+                        .bool()
+                        .to(device=hidden_states.device)
+                    )
+                    mel_latent_length = time_condition_mask.shape[-1]
+                    time_start, time_end = (
+                        int(time_condition[0] // audio_length_in_s * mel_latent_length),
+                        int(time_condition[1] // audio_length_in_s * mel_latent_length),
                     )
 
-                    current_ip_hidden_states = current_ip_hidden_states.transpose(1, 2).reshape(
-                        batch_size, -1, attn.heads * head_dim
-                    )
-                    current_ip_hidden_states = current_ip_hidden_states.to(query.dtype)
+                    time_condition_mask[:, :, time_start:time_end] = True
+                    time_condition_mask = time_condition_mask.flatten(-2).unsqueeze(-1).repeat(1, 1, 4)
+                    if time_condition_masks is None:
+                        time_condition_masks = time_condition_mask
+                    else:
+                        time_condition_masks = torch.cat([time_condition_masks, time_condition_mask], dim=-1)
 
-                    hidden_states = hidden_states + scale * current_ip_hidden_states
+                current_ip_hidden_states = rearrange(current_ip_hidden_states, "L B N C -> B (L N) C")
+                ip_key = to_k_ip(current_ip_hidden_states)
+                ip_value = to_v_ip(current_ip_hidden_states)
+
+                ip_key = ip_key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                ip_value = ip_value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                time_condition_masks = time_condition_masks.unsqueeze(1).repeat(1, attn.heads, 1, 1)
+
+                # the output of sdp = (batch, num_heads, seq_len, head_dim)
+                # TODO: add support for attn.scale when we move to Torch 2.1
+                current_ip_hidden_states = F.scaled_dot_product_attention(
+                    query, ip_key, ip_value, attn_mask=time_condition_masks, dropout_p=0.0, is_causal=False
+                )
+
+                current_ip_hidden_states = current_ip_hidden_states.transpose(1, 2).reshape(
+                    batch_size, -1, attn.heads * head_dim
+                )
+                current_ip_hidden_states = current_ip_hidden_states.to(query.dtype)
+
+                hidden_states = hidden_states + scale * current_ip_hidden_states
 
         # linear proj
         hidden_states = attn.to_out[0](hidden_states)
@@ -2438,6 +2445,7 @@ class VPTemporalAdapterAttnProcessor2_0(torch.nn.Module):
         hidden_states = hidden_states / attn.rescale_output_factor
 
         return hidden_states
+
 
 class IPAdapterAttnProcessor2_0(torch.nn.Module):
     r"""
@@ -2600,24 +2608,24 @@ class IPAdapterAttnProcessor2_0(torch.nn.Module):
             elif scale == 0:
                 skip = True
             if not skip:
-                    ip_key = to_k_ip(current_ip_hidden_states)
-                    ip_value = to_v_ip(current_ip_hidden_states)
+                ip_key = to_k_ip(current_ip_hidden_states)
+                ip_value = to_v_ip(current_ip_hidden_states)
 
-                    ip_key = ip_key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-                    ip_value = ip_value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                ip_key = ip_key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                ip_value = ip_value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-                    # the output of sdp = (batch, num_heads, seq_len, head_dim)
-                    # TODO: add support for attn.scale when we move to Torch 2.1
-                    current_ip_hidden_states = F.scaled_dot_product_attention(
-                        query, ip_key, ip_value, attn_mask=None, dropout_p=0.0, is_causal=False
-                    )
+                # the output of sdp = (batch, num_heads, seq_len, head_dim)
+                # TODO: add support for attn.scale when we move to Torch 2.1
+                current_ip_hidden_states = F.scaled_dot_product_attention(
+                    query, ip_key, ip_value, attn_mask=None, dropout_p=0.0, is_causal=False
+                )
 
-                    current_ip_hidden_states = current_ip_hidden_states.transpose(1, 2).reshape(
-                        batch_size, -1, attn.heads * head_dim
-                    )
-                    current_ip_hidden_states = current_ip_hidden_states.to(query.dtype)
+                current_ip_hidden_states = current_ip_hidden_states.transpose(1, 2).reshape(
+                    batch_size, -1, attn.heads * head_dim
+                )
+                current_ip_hidden_states = current_ip_hidden_states.to(query.dtype)
 
-                    hidden_states = hidden_states + scale * current_ip_hidden_states
+                hidden_states = hidden_states + scale * current_ip_hidden_states
 
         # linear proj
         hidden_states = attn.to_out[0](hidden_states)
@@ -2633,6 +2641,7 @@ class IPAdapterAttnProcessor2_0(torch.nn.Module):
         hidden_states = hidden_states / attn.rescale_output_factor
 
         return hidden_states
+
 
 LORA_ATTENTION_PROCESSORS = (
     LoRAAttnProcessor,

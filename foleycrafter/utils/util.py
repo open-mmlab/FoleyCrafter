@@ -1,47 +1,50 @@
-import torch
-import torchvision
-import torchaudio
-import torchvision.transforms as transforms
-from diffusers import ControlNetModel
-from foleycrafter.pipelines.pipeline_controlnet import StableDiffusionControlNetPipeline
-from foleycrafter.models.auffusion_unet import UNet2DConditionModel as af_UNet2DConditionModel
-from diffusers.models import AutoencoderKL
-from diffusers.schedulers import DDIMScheduler, PNDMScheduler
-from transformers import CLIPTextModel, CLIPTokenizer
 import glob
-from moviepy.editor import ImageSequenceClip, AudioFileClip, VideoFileClip
-import numpy as np
-import random 
-from typing import Union
-import decord
+import io
 import os
 import os.path as osp
-import imageio
-import soundfile as sf
-from PIL import Image, ImageOps
-import torch.distributed as dist
-import io
-
-from dataclasses import dataclass
-from enum import Enum
+import random
 import typing as T
 import warnings
-import pydub
-from scipy.io import wavfile
+from dataclasses import dataclass
+from enum import Enum
+from typing import Union
 
+import decord
+import imageio
+import numpy as np
+import pydub
+import soundfile as sf
+import torch
+import torch.distributed as dist
+import torchaudio
+import torchvision
+import torchvision.transforms as transforms
 from einops import rearrange
+from moviepy.editor import AudioFileClip, ImageSequenceClip, VideoFileClip
+from PIL import Image, ImageOps
+from scipy.io import wavfile
+from transformers import CLIPTextModel, CLIPTokenizer
+
+from diffusers import ControlNetModel
+from diffusers.models import AutoencoderKL
+from diffusers.schedulers import DDIMScheduler, PNDMScheduler
+from foleycrafter.models.auffusion_unet import UNet2DConditionModel as af_UNet2DConditionModel
+from foleycrafter.pipelines.pipeline_controlnet import StableDiffusionControlNetPipeline
+
 
 def zero_rank_print(s):
-    if (not dist.is_initialized()) or (dist.is_initialized() and dist.get_rank() == 0): print("### " + s, flush=True)
+    if (not dist.is_initialized()) or (dist.is_initialized() and dist.get_rank() == 0):
+        print("### " + s, flush=True)
+
 
 def build_foleycrafter(
-    pretrained_model_name_or_path: str="auffusion/auffusion-full-no-adapter",
+    pretrained_model_name_or_path: str = "auffusion/auffusion-full-no-adapter",
 ) -> StableDiffusionControlNetPipeline:
-    vae               = AutoencoderKL.from_pretrained(pretrained_model_name_or_path, subfolder='vae')
-    unet              = af_UNet2DConditionModel.from_pretrained(pretrained_model_name_or_path, subfolder='unet') 
-    scheduler         = PNDMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder='scheduler')
-    tokenizer         = CLIPTokenizer.from_pretrained(pretrained_model_name_or_path, subfolder='tokenizer')
-    text_encoder      = CLIPTextModel.from_pretrained(pretrained_model_name_or_path, subfolder='text_encoder')
+    vae = AutoencoderKL.from_pretrained(pretrained_model_name_or_path, subfolder="vae")
+    unet = af_UNet2DConditionModel.from_pretrained(pretrained_model_name_or_path, subfolder="unet")
+    scheduler = PNDMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder="scheduler")
+    tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_name_or_path, subfolder="tokenizer")
+    text_encoder = CLIPTextModel.from_pretrained(pretrained_model_name_or_path, subfolder="text_encoder")
 
     controlnet = ControlNetModel.from_unet(unet, conditioning_channels=1)
 
@@ -59,6 +62,7 @@ def build_foleycrafter(
 
     return pipe
 
+
 def save_videos_grid(videos: torch.Tensor, path: str, rescale=False, n_rows=6, fps=8):
     if len(videos.shape) == 4:
         videos = videos.unsqueeze(0)
@@ -74,10 +78,11 @@ def save_videos_grid(videos: torch.Tensor, path: str, rescale=False, n_rows=6, f
     os.makedirs(os.path.dirname(path), exist_ok=True)
     imageio.mimsave(path, outputs, fps=fps)
 
+
 def save_videos_from_pil_list(videos: list, path: str, fps=7):
     for i in range(len(videos)):
         videos[i] = ImageOps.scale(videos[i], 255)
- 
+
     imageio.mimwrite(path, videos, fps=fps)
 
 
@@ -93,33 +98,33 @@ def seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-def get_video_frames(video: np.ndarray, num_frames: int=200):
+
+def get_video_frames(video: np.ndarray, num_frames: int = 200):
     video_length = video.shape[0]
-    video_idx = np.linspace(0, video_length-1, num_frames, dtype=int)
+    video_idx = np.linspace(0, video_length - 1, num_frames, dtype=int)
     video = video[video_idx, ...]
     return video
 
-def random_audio_video_clip(audio: np.ndarray, video: np.ndarray, fps:float, \
-                            sample_rate:int=16000, duration:int=5, num_frames: int=20):
+
+def random_audio_video_clip(
+    audio: np.ndarray, video: np.ndarray, fps: float, sample_rate: int = 16000, duration: int = 5, num_frames: int = 20
+):
     """
-        Random sample video clips with duration
+    Random sample video clips with duration
     """
     video_length = video.shape[0]
     audio_length = audio.shape[-1]
-    av_duration  = int(video_length / fps)
-    assert av_duration >= duration,\
-    f"video duration {av_duration} is less than {duration}"
+    av_duration = int(video_length / fps)
+    assert av_duration >= duration, f"video duration {av_duration} is less than {duration}"
 
     # random sample start time
-    start_time  = random.uniform(0, av_duration - duration)
-    end_time    = start_time + duration
+    start_time = random.uniform(0, av_duration - duration)
+    end_time = start_time + duration
 
     start_idx, end_idx = start_time / av_duration, end_time / av_duration
 
-    video_start_frame, video_end_frame\
-                       = video_length * start_idx, video_length * end_idx
-    audio_start_frame, audio_end_frame\
-                       = audio_length * start_idx, audio_length * end_idx
+    video_start_frame, video_end_frame = video_length * start_idx, video_length * end_idx
+    audio_start_frame, audio_end_frame = audio_length * start_idx, audio_length * end_idx
 
     # print(f"time_idx : {start_time}:{end_time}")
     # print(f"video_idx: {video_start_frame}:{video_end_frame}")
@@ -130,49 +135,52 @@ def random_audio_video_clip(audio: np.ndarray, video: np.ndarray, fps:float, \
 
     audio = audio[..., audio_idx]
     video = video[video_idx, ...]
-    
+
     return audio, video
 
-def get_full_indices(reader: Union[decord.VideoReader, decord.AudioReader])\
-    -> np.ndarray:
+
+def get_full_indices(reader: Union[decord.VideoReader, decord.AudioReader]) -> np.ndarray:
     if isinstance(reader, decord.VideoReader):
         return np.linspace(0, len(reader) - 1, len(reader), dtype=int)
     elif isinstance(reader, decord.AudioReader):
         return np.linspace(0, reader.shape[-1] - 1, reader.shape[-1], dtype=int)
 
-def get_frames(video_path:str, onset_list, frame_nums=1024):
+
+def get_frames(video_path: str, onset_list, frame_nums=1024):
     video = decord.VideoReader(video_path)
     video_frame = len(video)
 
     frames_list = []
     for start, end in onset_list:
         video_start = int(start / frame_nums * video_frame)
-        video_end   = int(end   / frame_nums * video_frame)
+        video_end = int(end / frame_nums * video_frame)
 
         frames_list.extend(range(video_start, video_end))
     frames = video.get_batch(frames_list).asnumpy()
     return frames
 
-def get_frames_in_video(video_path:str, onset_list, frame_nums=1024, audio_length_in_s=10):
+
+def get_frames_in_video(video_path: str, onset_list, frame_nums=1024, audio_length_in_s=10):
     # this function consider the video length
     video = decord.VideoReader(video_path)
     video_frame = len(video)
     duration = video_frame / video.get_avg_fps()
     frames_list = []
-    video_onset_list  = []
+    video_onset_list = []
     for start, end in onset_list:
         if int(start / frame_nums * duration) >= audio_length_in_s:
             continue
         video_start = int(start / audio_length_in_s * duration / frame_nums * video_frame)
         if video_start >= video_frame:
             continue
-        video_end   = int(end   / audio_length_in_s * duration / frame_nums * video_frame)
+        video_end = int(end / audio_length_in_s * duration / frame_nums * video_frame)
         video_onset_list.append([int(start / audio_length_in_s * duration), int(end / audio_length_in_s * duration)])
         frames_list.extend(range(video_start, video_end))
     frames = video.get_batch(frames_list).asnumpy()
     return frames, video_onset_list
 
-def save_multimodal(video, audio, output_path, audio_fps:int=16000, video_fps:int=8, remove_audio:bool=True):
+
+def save_multimodal(video, audio, output_path, audio_fps: int = 16000, video_fps: int = 8, remove_audio: bool = True):
     imgs = [img for img in video]
     # if audio.shape[0] == 1 or audio.shape[0] == 2:
     #     audio = audio.T #[len, channel]
@@ -191,7 +199,8 @@ def save_multimodal(video, audio, output_path, audio_fps:int=16000, video_fps:in
         os.remove(osp.join(output_dir, "audio.wav"))
     return
 
-def save_multimodal_by_frame(video, audio, output_path, audio_fps:int=16000):
+
+def save_multimodal_by_frame(video, audio, output_path, audio_fps: int = 16000):
     imgs = [img for img in video]
     # if audio.shape[0] == 1 or audio.shape[0] == 2:
     #     audio = audio.T #[len, channel]
@@ -201,19 +210,20 @@ def save_multimodal_by_frame(video, audio, output_path, audio_fps:int=16000):
     wavfile.write(osp.join(output_dir, "audio.wav"), audio_fps, audio)
     audio_clip = AudioFileClip(osp.join(output_dir, "audio.wav"))
     # audio_clip = AudioArrayClip(audio, fps=audio_fps)
-    os.makedirs(osp.join(output_dir, 'frames'), exist_ok=True)
+    os.makedirs(osp.join(output_dir, "frames"), exist_ok=True)
     for num, img in enumerate(imgs):
         if isinstance(img, np.ndarray):
             img = Image.fromarray(img.astype(np.uint8))
-        img.save(osp.join(output_dir, 'frames', f"{num}.jpg"))
+        img.save(osp.join(output_dir, "frames", f"{num}.jpg"))
     return
 
-def sanity_check(data: dict, save_path: str="sanity_check", batch_size: int=4, sample_rate: int=16000):
-    video_path = osp.join(save_path, 'video')
-    audio_path = osp.join(save_path, 'audio')
-    av_path    = osp.join(save_path, 'av')
 
-    video, audio, text = data['pixel_values'], data['audio'], data['text']
+def sanity_check(data: dict, save_path: str = "sanity_check", batch_size: int = 4, sample_rate: int = 16000):
+    video_path = osp.join(save_path, "video")
+    audio_path = osp.join(save_path, "audio")
+    av_path = osp.join(save_path, "av")
+
+    video, audio, text = data["pixel_values"], data["audio"], data["text"]
     video = (video / 2 + 0.5).clamp(0, 1)
 
     zero_rank_print(f"Saving {text} audio: {audio[0].shape} video: {video[0].shape}")
@@ -223,12 +233,13 @@ def sanity_check(data: dict, save_path: str="sanity_check", batch_size: int=4, s
         os.makedirs(audio_path, exist_ok=True)
         os.makedirs(av_path, exist_ok=True)
         # save_videos_grid(video[bsz:bsz+1,...], f"{osp.join(video_path, str(bsz) + '.mp4')}")
-        bsz_audio = audio[bsz,...].permute(1, 0).cpu().numpy()
+        bsz_audio = audio[bsz, ...].permute(1, 0).cpu().numpy()
         bsz_video = video_tensor_to_np(video[bsz, ...])
         sf.write(f"{osp.join(audio_path, str(bsz) + '.wav')}", bsz_audio, sample_rate)
-        save_multimodal(bsz_video, bsz_audio, osp.join(av_path, str(bsz) + '.mp4'))
+        save_multimodal(bsz_video, bsz_audio, osp.join(av_path, str(bsz) + ".mp4"))
 
-def video_tensor_to_np(video: torch.Tensor, rescale: bool=True, scale: bool=False):
+
+def video_tensor_to_np(video: torch.Tensor, rescale: bool = True, scale: bool = False):
     if scale:
         video = (video / 2 + 0.5).clamp(0, 1)
     # c f h w -> f h w c
@@ -240,13 +251,15 @@ def video_tensor_to_np(video: torch.Tensor, rescale: bool=True, scale: bool=Fals
         video = video * 255
     return video
 
-def composite_audio_video(video: str, audio: str, path:str, video_fps:int=7, audio_sample_rate:int=16000):
+
+def composite_audio_video(video: str, audio: str, path: str, video_fps: int = 7, audio_sample_rate: int = 16000):
     video = decord.VideoReader(video)
     audio = decord.AudioReader(audio, sample_rate=audio_sample_rate)
     audio = audio.get_batch(get_full_indices(audio)).asnumpy()
     video = video.get_batch(get_full_indices(video)).asnumpy()
     save_multimodal(video, audio, path, audio_fps=audio_sample_rate, video_fps=video_fps)
     return
+
 
 # for video pipeline
 def append_dims(x, target_dims):
@@ -255,6 +268,7 @@ def append_dims(x, target_dims):
     if dims_to_append < 0:
         raise ValueError(f"input has {x.ndim} dims but target_dims is {target_dims}, which is less")
     return x[(...,) + (None,) * dims_to_append]
+
 
 def resize_with_antialiasing(input, size, interpolation="bicubic", align_corners=True):
     h, w = input.shape[-2:]
@@ -284,6 +298,7 @@ def resize_with_antialiasing(input, size, interpolation="bicubic", align_corners
     output = torch.nn.functional.interpolate(input, size=size, mode=interpolation, align_corners=align_corners)
     return output
 
+
 def _gaussian_blur2d(input, kernel_size, sigma):
     if isinstance(sigma, tuple):
         sigma = torch.tensor([sigma], dtype=input.dtype)
@@ -298,6 +313,7 @@ def _gaussian_blur2d(input, kernel_size, sigma):
     out = _filter2d(out_x, kernel_y[..., None])
 
     return out
+
 
 def _filter2d(input, kernel):
     # prepare kernel
@@ -337,6 +353,7 @@ def _gaussian(window_size: int, sigma):
 
     return gauss / gauss.sum(-1, keepdim=True)
 
+
 def _compute_padding(kernel_size):
     """Compute padding tuple."""
     # 4 or 6 ints:  (padding_left, padding_right,padding_top,padding_bottom)
@@ -359,15 +376,16 @@ def _compute_padding(kernel_size):
 
     return out_padding
 
-def print_gpu_memory_usage(info: str, cuda_id:int=0):
 
+def print_gpu_memory_usage(info: str, cuda_id: int = 0):
     print(f">>> {info} <<<")
-    reserved = torch.cuda.memory_reserved(cuda_id) / 1024 ** 3
-    used     = torch.cuda.memory_allocated(cuda_id) / 1024 ** 3
+    reserved = torch.cuda.memory_reserved(cuda_id) / 1024**3
+    used = torch.cuda.memory_allocated(cuda_id) / 1024**3
 
     print("total: ", reserved, "G")
     print("used: ", used, "G")
     print("available: ", reserved - used, "G")
+
 
 # use for dsp mel2spec
 @dataclass(frozen=True)
@@ -459,7 +477,8 @@ class SpectrogramParams:
             self.ExifTags.MIN_FREQUENCY.value: self.min_frequency,
             self.ExifTags.MAX_FREQUENCY.value: self.max_frequency,
             self.ExifTags.POWER_FOR_IMAGE.value: float(self.power_for_image),
-        } 
+        }
+
 
 class SpectrogramImageConverter:
     """
@@ -543,7 +562,8 @@ class SpectrogramImageConverter:
         )
 
         return segment
-    
+
+
 def image_from_spectrogram(spectrogram: np.ndarray, power: float = 0.25) -> Image.Image:
     """
     Compute a spectrogram image from a spectrogram magnitude array.
@@ -643,6 +663,7 @@ def spectrogram_from_image(
 
     return data
 
+
 class SpectrogramConverter:
     """
     Convert between audio segments and spectrogram tensors using torchaudio.
@@ -724,10 +745,10 @@ class SpectrogramConverter:
             sample_rate=params.sample_rate,
             f_min=params.min_frequency,
             f_max=params.max_frequency,
-            # max_iter=params.max_mel_iters, # for higher verson of torchaudio
-            # tolerance_loss=1e-5, # for higher verson of torchaudio
-            # tolerance_change=1e-8, # for higher verson of torchaudio
-            # sgdargs=None, # for higher verson of torchaudio
+            # max_iter=params.max_mel_iters, # for higher version of torchaudio
+            # tolerance_loss=1e-5, # for higher version of torchaudio
+            # tolerance_change=1e-8, # for higher version of torchaudio
+            # sgdargs=None, # for higher version of torchaudio
             norm=params.mel_scale_norm,
             mel_scale=params.mel_scale_type,
         ).to(self.device)
@@ -836,7 +857,8 @@ class SpectrogramConverter:
 
         # Run the approximate algorithm to compute the phase and recover the waveform
         return self.inverse_spectrogram_func(amplitudes_linear)
-    
+
+
 def check_device(device: str, backup: str = "cpu") -> str:
     """
     Check that the device is valid and available. If not,
@@ -850,9 +872,8 @@ def check_device(device: str, backup: str = "cpu") -> str:
 
     return device
 
-def audio_from_waveform(
-    samples: np.ndarray, sample_rate: int, normalize: bool = False
-) -> pydub.AudioSegment:
+
+def audio_from_waveform(samples: np.ndarray, sample_rate: int, normalize: bool = False) -> pydub.AudioSegment:
     """
     Convert a numpy array of samples of a waveform to an audio segment.
 
@@ -910,6 +931,7 @@ def apply_filters_func(segment: pydub.AudioSegment, compression: bool = False) -
     )
 
     return segment
+
 
 def shave_segments(path, n_shave_prefix_segments=1):
     """
@@ -1056,10 +1078,10 @@ def assign_to_checkpoint(
         # proj_attn.weight has to be converted from conv 1D to linear
         if "proj_attn.weight" in new_path:
             checkpoint[new_path] = old_checkpoint[path["old"]][:, :, 0]
-        elif 'to_out.0.weight' in new_path:
-            checkpoint[new_path] = old_checkpoint[path['old']].squeeze()
-        elif any([qkv in new_path for qkv in ['to_q', 'to_k', 'to_v']]):
-            checkpoint[new_path] = old_checkpoint[path['old']].squeeze()
+        elif "to_out.0.weight" in new_path:
+            checkpoint[new_path] = old_checkpoint[path["old"]].squeeze()
+        elif any([qkv in new_path for qkv in ["to_q", "to_k", "to_v"]]):
+            checkpoint[new_path] = old_checkpoint[path["old"]].squeeze()
         else:
             checkpoint[new_path] = old_checkpoint[path["old"]]
 
@@ -1177,6 +1199,7 @@ def create_diffusers_schedular(original_config):
         beta_schedule="scaled_linear",
     )
     return schedular
+
 
 def convert_ldm_unet_checkpoint(checkpoint, config, path=None, extract_ema=False, controlnet=False):
     """
@@ -1515,11 +1538,14 @@ def convert_ldm_vae_checkpoint(checkpoint, config, only_decoder=False, only_enco
     conv_attn_to_linear(new_checkpoint)
 
     if only_decoder:
-        new_checkpoint = {k: v for k, v in new_checkpoint.items() if k.startswith('decoder') or k.startswith('post_quant')}
+        new_checkpoint = {
+            k: v for k, v in new_checkpoint.items() if k.startswith("decoder") or k.startswith("post_quant")
+        }
     elif only_encoder:
-        new_checkpoint = {k: v for k, v in new_checkpoint.items() if k.startswith('encoder') or k.startswith('quant')}
+        new_checkpoint = {k: v for k, v in new_checkpoint.items() if k.startswith("encoder") or k.startswith("quant")}
 
     return new_checkpoint
+
 
 def convert_ldm_clip_checkpoint(checkpoint):
     keys = list(checkpoint.keys())
@@ -1531,9 +1557,11 @@ def convert_ldm_clip_checkpoint(checkpoint):
 
     return text_model_dict
 
-def convert_lora_model_level(state_dict, unet, text_encoder=None, LORA_PREFIX_UNET="lora_unet", LORA_PREFIX_TEXT_ENCODER="lora_te", alpha=0.6):
-    """convert lora in model level instead of pipeline leval
-    """
+
+def convert_lora_model_level(
+    state_dict, unet, text_encoder=None, LORA_PREFIX_UNET="lora_unet", LORA_PREFIX_TEXT_ENCODER="lora_te", alpha=0.6
+):
+    """convert lora in model level instead of pipeline leval"""
 
     visited = []
 
@@ -1548,8 +1576,7 @@ def convert_lora_model_level(state_dict, unet, text_encoder=None, LORA_PREFIX_UN
 
         if "text" in key:
             layer_infos = key.split(".")[0].split(LORA_PREFIX_TEXT_ENCODER + "_")[-1].split("_")
-            assert text_encoder is not None, (
-                'text_encoder must be passed since lora contains text encoder layers')
+            assert text_encoder is not None, "text_encoder must be passed since lora contains text encoder layers"
             curr_layer = text_encoder
         else:
             layer_infos = key.split(".")[0].split(LORA_PREFIX_UNET + "_")[-1].split("_")
@@ -1580,7 +1607,7 @@ def convert_lora_model_level(state_dict, unet, text_encoder=None, LORA_PREFIX_UN
 
         # update weight
         # NOTE: load lycon, meybe have bugs :(
-        if 'conv_in' in pair_keys[0]:
+        if "conv_in" in pair_keys[0]:
             weight_up = state_dict[pair_keys[0]].to(torch.float32)
             weight_down = state_dict[pair_keys[1]].to(torch.float32)
             weight_up = weight_up.view(weight_up.size(0), -1)
@@ -1588,7 +1615,7 @@ def convert_lora_model_level(state_dict, unet, text_encoder=None, LORA_PREFIX_UN
             shape = [e for e in curr_layer.weight.data.shape]
             shape[1] = 4
             curr_layer.weight.data[:, :4, ...] += alpha * (weight_up @ weight_down).view(*shape)
-        elif 'conv' in pair_keys[0]:
+        elif "conv" in pair_keys[0]:
             weight_up = state_dict[pair_keys[0]].to(torch.float32)
             weight_down = state_dict[pair_keys[1]].to(torch.float32)
             weight_up = weight_up.view(weight_up.size(0), -1)
@@ -1598,7 +1625,9 @@ def convert_lora_model_level(state_dict, unet, text_encoder=None, LORA_PREFIX_UN
         elif len(state_dict[pair_keys[0]].shape) == 4:
             weight_up = state_dict[pair_keys[0]].squeeze(3).squeeze(2).to(torch.float32)
             weight_down = state_dict[pair_keys[1]].squeeze(3).squeeze(2).to(torch.float32)
-            curr_layer.weight.data += alpha * torch.mm(weight_up, weight_down).unsqueeze(2).unsqueeze(3).to(curr_layer.weight.data.device)
+            curr_layer.weight.data += alpha * torch.mm(weight_up, weight_down).unsqueeze(2).unsqueeze(3).to(
+                curr_layer.weight.data.device
+            )
         else:
             weight_up = state_dict[pair_keys[0]].to(torch.float32)
             weight_down = state_dict[pair_keys[1]].to(torch.float32)
@@ -1610,14 +1639,14 @@ def convert_lora_model_level(state_dict, unet, text_encoder=None, LORA_PREFIX_UN
 
     return unet, text_encoder
 
+
 def denormalize_spectrogram(
     data: torch.Tensor,
-    max_value: float = 200, 
-    min_value: float = 1e-5, 
-    power: float = 1, 
+    max_value: float = 200,
+    min_value: float = 1e-5,
+    power: float = 1,
     inverse: bool = False,
 ) -> torch.Tensor:
-    
     max_value = np.log(max_value)
     min_value = np.log(min_value)
 
@@ -1625,10 +1654,10 @@ def denormalize_spectrogram(
     data = torch.flip(data, [1])
 
     assert len(data.shape) == 3, "Expected 3 dimensions, got {}".format(len(data.shape))
-    
+
     if data.shape[0] == 1:
         data = data.repeat(3, 1, 1)
-        
+
     assert data.shape[0] == 3, "Expected 3 channels, got {}".format(data.shape[0])
     data = data[0]
 
@@ -1644,41 +1673,44 @@ def denormalize_spectrogram(
 
     return spectrogram
 
-class ToTensor1D(torchvision.transforms.ToTensor):
 
+class ToTensor1D(torchvision.transforms.ToTensor):
     def __call__(self, tensor: np.ndarray):
         tensor_2d = super(ToTensor1D, self).__call__(tensor[..., np.newaxis])
 
         return tensor_2d.squeeze_(0)
 
+
 def scale(old_value, old_min, old_max, new_min, new_max):
-    old_range = (old_max - old_min)
-    new_range = (new_max - new_min)
+    old_range = old_max - old_min
+    new_range = new_max - new_min
     new_value = (((old_value - old_min) * new_range) / old_range) + new_min
 
     return new_value
+
 
 def read_frames_with_moviepy(video_path, max_frame_nums=None):
     clip = VideoFileClip(video_path)
     duration = clip.duration
     frames = []
     for frame in clip.iter_frames():
-        frames.append(frame) 
+        frames.append(frame)
     if max_frame_nums is not None:
         frames_idx = np.linspace(0, len(frames) - 1, max_frame_nums, dtype=int)
-    return np.array(frames)[frames_idx,...], duration
+    return np.array(frames)[frames_idx, ...], duration
+
 
 def read_frames_with_moviepy_resample(video_path, save_path):
     vision_transform_list = [
         transforms.Resize((128, 128)),
         transforms.CenterCrop((112, 112)),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ]
     video_transform = transforms.Compose(vision_transform_list)
     os.makedirs(save_path, exist_ok=True)
-    command = f'ffmpeg -v quiet -y -i \"{video_path}\" -f image2 -vf \"scale=-1:360,fps=15\" -qscale:v 3 \"{save_path}\"/frame%06d.jpg'
+    command = f'ffmpeg -v quiet -y -i "{video_path}" -f image2 -vf "scale=-1:360,fps=15" -qscale:v 3 "{save_path}"/frame%06d.jpg'
     os.system(command)
-    frame_list = glob.glob(f'{save_path}/*.jpg')
+    frame_list = glob.glob(f"{save_path}/*.jpg")
     frame_list.sort()
     convert_tensor = transforms.ToTensor()
     frame_list = [convert_tensor(np.array(Image.open(frame))) for frame in frame_list]

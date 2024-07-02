@@ -13,78 +13,84 @@
 # limitations under the License.
 
 import inspect
+import json
+import os
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Union
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Union
 
+import matplotlib.pyplot as plt
+import numpy as np
+import PIL
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from huggingface_hub import snapshot_download
 from packaging import version
-from transformers import CLIPImageProcessor, CLIPTextModel, CLIPTokenizer, CLIPVisionModelWithProjection
+from torch.nn import Conv1d, ConvTranspose1d
+from torch.nn.utils import remove_weight_norm, weight_norm
+from transformers import (
+    AutoTokenizer,
+    CLIPImageProcessor,
+    CLIPTextModel,
+    CLIPTokenizer,
+    CLIPVisionModelWithProjection,
+    PretrainedConfig,
+)
 
+from diffusers import AutoencoderKL, PNDMScheduler
 from diffusers.configuration_utils import FrozenDict
-from diffusers.utils.torch_utils import randn_tensor
-from diffusers.image_processor import VaeImageProcessor
+from diffusers.image_processor import PipelineImageInput, VaeImageProcessor
 from diffusers.loaders import FromSingleFileMixin, LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.models import AutoencoderKL, ImageProjection
-from diffusers.schedulers import KarrasDiffusionSchedulers
-from diffusers.image_processor import PipelineImageInput
 from diffusers.models.attention_processor import FusedAttnProcessor2_0
+from diffusers.pipelines.pipeline_utils import DiffusionPipeline
+from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
+from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
+from diffusers.schedulers import KarrasDiffusionSchedulers
 from diffusers.utils import (
     deprecate,
     is_accelerate_available,
     is_accelerate_version,
     logging,
-    replace_example_docstring,
 )
-from diffusers.pipelines.pipeline_utils import DiffusionPipeline
-from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
-from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
-from huggingface_hub import snapshot_download
-from diffusers import AutoencoderKL, DDPMScheduler, PNDMScheduler
-from transformers import PretrainedConfig, AutoTokenizer
-import torch.nn as nn
-import os, json, PIL
-import numpy as np
-import torch.nn.functional as F
-from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
-from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
 from diffusers.utils.outputs import BaseOutput
-import matplotlib.pyplot as plt
-
-from foleycrafter.models.auffusion_unet import UNet2DConditionModel
+from diffusers.utils.torch_utils import randn_tensor
 from foleycrafter.models.auffusion.loaders.ip_adapter import IPAdapterMixin
+from foleycrafter.models.auffusion_unet import UNet2DConditionModel
+
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 
-
 def json_dump(data_json, json_save_path):
-    with open(json_save_path, 'w') as f:
+    with open(json_save_path, "w") as f:
         json.dump(data_json, f, indent=4)
         f.close()
 
 
 def json_load(json_path):
-    with open(json_path, 'r') as f:
+    with open(json_path, "r") as f:
         data = json.load(f)
         f.close()
-    return data                
+    return data
 
 
 def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: str):
-    text_encoder_config = PretrainedConfig.from_pretrained(
-        pretrained_model_name_or_path
-    )
+    text_encoder_config = PretrainedConfig.from_pretrained(pretrained_model_name_or_path)
     model_class = text_encoder_config.architectures[0]
 
     if model_class == "CLIPTextModel":
         from transformers import CLIPTextModel
+
         return CLIPTextModel
     if "t5" in model_class.lower():
         from transformers import T5EncoderModel
+
         return T5EncoderModel
     if "clap" in model_class.lower():
         from transformers import ClapTextModelWithProjection
+
         return ClapTextModelWithProjection
     else:
         raise ValueError(f"{model_class} is not supported.")
@@ -102,7 +108,7 @@ class ConditionAdapter(nn.Module):
         x = self.proj(x)
         x = self.norm(x)
         return x
-    
+
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path):
         config_path = os.path.join(pretrained_model_name_or_path, "config.json")
@@ -116,7 +122,7 @@ class ConditionAdapter(nn.Module):
     def save_pretrained(self, pretrained_model_name_or_path):
         os.makedirs(pretrained_model_name_or_path, exist_ok=True)
         config_path = os.path.join(pretrained_model_name_or_path, "config.json")
-        ckpt_path = os.path.join(pretrained_model_name_or_path, "condition_adapter.pt")        
+        ckpt_path = os.path.join(pretrained_model_name_or_path, "condition_adapter.pt")
         json_dump(self.config, config_path)
         torch.save(self.state_dict(), ckpt_path)
         print(f"SAVED: ConditionAdapter {self.config['model_name']} to {pretrained_model_name_or_path}")
@@ -136,7 +142,6 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=0.0):
     return noise_cfg
 
 
-
 LRELU_SLOPE = 0.1
 MAX_WAV_VALUE = 32768.0
 
@@ -152,6 +157,7 @@ def get_config(config_path):
     config = AttrDict(config)
     return config
 
+
 def init_weights(m, mean=0.0, std=0.01):
     classname = m.__class__.__name__
     if classname.find("Conv") != -1:
@@ -165,31 +171,62 @@ def apply_weight_norm(m):
 
 
 def get_padding(kernel_size, dilation=1):
-    return int((kernel_size*dilation - dilation)/2)
+    return int((kernel_size * dilation - dilation) / 2)
 
 
 class ResBlock1(torch.nn.Module):
     def __init__(self, h, channels, kernel_size=3, dilation=(1, 3, 5)):
         super(ResBlock1, self).__init__()
         self.h = h
-        self.convs1 = nn.ModuleList([
-            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=dilation[0],
-                               padding=get_padding(kernel_size, dilation[0]))),
-            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=dilation[1],
-                               padding=get_padding(kernel_size, dilation[1]))),
-            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=dilation[2],
-                               padding=get_padding(kernel_size, dilation[2])))
-        ])
+        self.convs1 = nn.ModuleList(
+            [
+                weight_norm(
+                    Conv1d(
+                        channels,
+                        channels,
+                        kernel_size,
+                        1,
+                        dilation=dilation[0],
+                        padding=get_padding(kernel_size, dilation[0]),
+                    )
+                ),
+                weight_norm(
+                    Conv1d(
+                        channels,
+                        channels,
+                        kernel_size,
+                        1,
+                        dilation=dilation[1],
+                        padding=get_padding(kernel_size, dilation[1]),
+                    )
+                ),
+                weight_norm(
+                    Conv1d(
+                        channels,
+                        channels,
+                        kernel_size,
+                        1,
+                        dilation=dilation[2],
+                        padding=get_padding(kernel_size, dilation[2]),
+                    )
+                ),
+            ]
+        )
         self.convs1.apply(init_weights)
 
-        self.convs2 = nn.ModuleList([
-            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=1,
-                               padding=get_padding(kernel_size, 1))),
-            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=1,
-                               padding=get_padding(kernel_size, 1))),
-            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=1,
-                               padding=get_padding(kernel_size, 1)))
-        ])
+        self.convs2 = nn.ModuleList(
+            [
+                weight_norm(
+                    Conv1d(channels, channels, kernel_size, 1, dilation=1, padding=get_padding(kernel_size, 1))
+                ),
+                weight_norm(
+                    Conv1d(channels, channels, kernel_size, 1, dilation=1, padding=get_padding(kernel_size, 1))
+                ),
+                weight_norm(
+                    Conv1d(channels, channels, kernel_size, 1, dilation=1, padding=get_padding(kernel_size, 1))
+                ),
+            ]
+        )
         self.convs2.apply(init_weights)
 
     def forward(self, x):
@@ -212,12 +249,30 @@ class ResBlock2(torch.nn.Module):
     def __init__(self, h, channels, kernel_size=3, dilation=(1, 3)):
         super(ResBlock2, self).__init__()
         self.h = h
-        self.convs = nn.ModuleList([
-            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=dilation[0],
-                               padding=get_padding(kernel_size, dilation[0]))),
-            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=dilation[1],
-                               padding=get_padding(kernel_size, dilation[1])))
-        ])
+        self.convs = nn.ModuleList(
+            [
+                weight_norm(
+                    Conv1d(
+                        channels,
+                        channels,
+                        kernel_size,
+                        1,
+                        dilation=dilation[0],
+                        padding=get_padding(kernel_size, dilation[0]),
+                    )
+                ),
+                weight_norm(
+                    Conv1d(
+                        channels,
+                        channels,
+                        kernel_size,
+                        1,
+                        dilation=dilation[1],
+                        padding=get_padding(kernel_size, dilation[1]),
+                    )
+                ),
+            ]
+        )
         self.convs.apply(init_weights)
 
     def forward(self, x):
@@ -232,7 +287,6 @@ class ResBlock2(torch.nn.Module):
             remove_weight_norm(l)
 
 
-
 class Generator(torch.nn.Module):
     def __init__(self, h):
         super(Generator, self).__init__()
@@ -240,30 +294,48 @@ class Generator(torch.nn.Module):
         self.num_kernels = len(h.resblock_kernel_sizes)
         self.num_upsamples = len(h.upsample_rates)
         # self.conv_pre = weight_norm(Conv1d(80, h.upsample_initial_channel, 7, 1, padding=3))
-        self.conv_pre = weight_norm(Conv1d(h.num_mels, h.upsample_initial_channel, 7, 1, padding=3)) # change: 80 --> 512
-        resblock = ResBlock1 if h.resblock == '1' else ResBlock2
+        self.conv_pre = weight_norm(
+            Conv1d(h.num_mels, h.upsample_initial_channel, 7, 1, padding=3)
+        )  # change: 80 --> 512
+        resblock = ResBlock1 if h.resblock == "1" else ResBlock2
 
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.ups = nn.ModuleList()
         for i, (u, k) in enumerate(zip(h.upsample_rates, h.upsample_kernel_sizes)):
-            if (k-u) % 2 == 0:
-                self.ups.append(weight_norm(
-                    ConvTranspose1d(h.upsample_initial_channel//(2**i), h.upsample_initial_channel//(2**(i+1)),
-                                    k, u, padding=(k-u)//2)))
+            if (k - u) % 2 == 0:
+                self.ups.append(
+                    weight_norm(
+                        ConvTranspose1d(
+                            h.upsample_initial_channel // (2**i),
+                            h.upsample_initial_channel // (2 ** (i + 1)),
+                            k,
+                            u,
+                            padding=(k - u) // 2,
+                        )
+                    )
+                )
             else:
-                self.ups.append(weight_norm(
-                    ConvTranspose1d(h.upsample_initial_channel//(2**i), h.upsample_initial_channel//(2**(i+1)),
-                                    k, u, padding=(k-u)//2+1, output_padding=1)))
-            
+                self.ups.append(
+                    weight_norm(
+                        ConvTranspose1d(
+                            h.upsample_initial_channel // (2**i),
+                            h.upsample_initial_channel // (2 ** (i + 1)),
+                            k,
+                            u,
+                            padding=(k - u) // 2 + 1,
+                            output_padding=1,
+                        )
+                    )
+                )
+
             # self.ups.append(weight_norm(
             #     ConvTranspose1d(h.upsample_initial_channel//(2**i), h.upsample_initial_channel//(2**(i+1)),
             #                     k, u, padding=(k-u)//2)))
-            
 
         self.resblocks = nn.ModuleList()
         for i in range(len(self.ups)):
-            ch = h.upsample_initial_channel//(2**(i+1))
+            ch = h.upsample_initial_channel // (2 ** (i + 1))
             for j, (k, d) in enumerate(zip(h.resblock_kernel_sizes, h.resblock_dilation_sizes)):
                 self.resblocks.append(resblock(h, ch, k, d))
 
@@ -287,9 +359,9 @@ class Generator(torch.nn.Module):
             xs = None
             for j in range(self.num_kernels):
                 if xs is None:
-                    xs = self.resblocks[i*self.num_kernels+j](x)
+                    xs = self.resblocks[i * self.num_kernels + j](x)
                 else:
-                    xs += self.resblocks[i*self.num_kernels+j](x)
+                    xs += self.resblocks[i * self.num_kernels + j](x)
             x = xs / self.num_kernels
         x = F.leaky_relu(x)
         x = self.conv_post(x)
@@ -298,7 +370,7 @@ class Generator(torch.nn.Module):
         return x
 
     def remove_weight_norm(self):
-        print('Removing weight norm...')
+        print("Removing weight norm...")
         for l in self.ups:
             remove_weight_norm(l)
         for l in self.resblocks:
@@ -311,9 +383,9 @@ class Generator(torch.nn.Module):
         if subfolder is not None:
             pretrained_model_name_or_path = os.path.join(pretrained_model_name_or_path, subfolder)
         config_path = os.path.join(pretrained_model_name_or_path, "config.json")
-        ckpt_path   = os.path.join(pretrained_model_name_or_path, "vocoder.pt")
+        ckpt_path = os.path.join(pretrained_model_name_or_path, "vocoder.pt")
 
-        config  = get_config(config_path)
+        config = get_config(config_path)
         vocoder = cls(config)
 
         state_dict_g = torch.load(ckpt_path)
@@ -321,7 +393,7 @@ class Generator(torch.nn.Module):
         vocoder.eval()
         vocoder.remove_weight_norm()
         return vocoder
-    
+
     @torch.no_grad()
     def inference(self, mels, lengths=None):
         self.eval()
@@ -336,17 +408,15 @@ class Generator(torch.nn.Module):
         return wavs
 
 
-
 def normalize_spectrogram(
     spectrogram: torch.Tensor,
-    max_value: float = 200, 
-    min_value: float = 1e-5, 
-    power: float = 1., 
+    max_value: float = 200,
+    min_value: float = 1e-5,
+    power: float = 1.0,
 ) -> torch.Tensor:
-    
     # Rescale to 0-1
-    max_value = np.log(max_value) # 5.298317366548036
-    min_value = np.log(min_value) # -11.512925464970229
+    max_value = np.log(max_value)  # 5.298317366548036
+    min_value = np.log(min_value)  # -11.512925464970229
     spectrogram = torch.clamp(spectrogram, min=min_value, max=max_value)
     data = (spectrogram - min_value) / (max_value - min_value)
     # Apply the power curve
@@ -361,19 +431,18 @@ def normalize_spectrogram(
 
 def denormalize_spectrogram(
     data: torch.Tensor,
-    max_value: float = 200, 
-    min_value: float = 1e-5, 
-    power: float = 1, 
+    max_value: float = 200,
+    min_value: float = 1e-5,
+    power: float = 1,
 ) -> torch.Tensor:
-    
     assert len(data.shape) == 3, "Expected 3 dimensions, got {}".format(len(data.shape))
 
     max_value = np.log(max_value)
     min_value = np.log(min_value)
     # Flip Y axis: image origin at the top-left corner, spectrogram origin at the bottom-left corner
-    data = torch.flip(data, [1])    
+    data = torch.flip(data, [1])
     if data.shape[0] == 1:
-        data = data.repeat(3, 1, 1)        
+        data = data.repeat(3, 1, 1)
     assert data.shape[0] == 3, "Expected 3 channels, got {}".format(data.shape[0])
     data = data[0]
     # Reverse the power curve
@@ -383,6 +452,7 @@ def denormalize_spectrogram(
 
     return spectrogram
 
+
 @staticmethod
 def pt_to_numpy(images: torch.FloatTensor) -> np.ndarray:
     """
@@ -390,6 +460,7 @@ def pt_to_numpy(images: torch.FloatTensor) -> np.ndarray:
     """
     images = images.cpu().permute(0, 2, 3, 1).float().numpy()
     return images
+
 
 @staticmethod
 def numpy_to_pil(images: np.ndarray) -> PIL.Image.Image:
@@ -409,11 +480,11 @@ def numpy_to_pil(images: np.ndarray) -> PIL.Image.Image:
 
 
 def image_add_color(spec_img):
-    cmap = plt.get_cmap('viridis')
+    cmap = plt.get_cmap("viridis")
     cmap_r = cmap.reversed()
-    image = cmap(np.array(spec_img)[:,:,0])[:, :, :3]  # 省略透明度通道
+    image = cmap(np.array(spec_img)[:, :, 0])[:, :, :3]  # 省略透明度通道
     image = (image - image.min()) / (image.max() - image.min())
-    image = PIL.Image.fromarray(np.uint8(image*255))
+    image = PIL.Image.fromarray(np.uint8(image * 255))
     return image
 
 
@@ -432,9 +503,7 @@ class PipelineOutput(BaseOutput):
     audios: Union[List[np.ndarray], np.ndarray]
 
 
-
 class AuffusionPipeline(DiffusionPipeline):
-
     r"""
     Pipeline for text-to-image generation using Stable Diffusion.
 
@@ -469,21 +538,31 @@ class AuffusionPipeline(DiffusionPipeline):
         feature_extractor ([`CLIPImageProcessor`]):
             Model that extracts features from generated images to be used as inputs for the `safety_checker`.
     """
-    _optional_components = ["safety_checker", "feature_extractor", "text_encoder_list", "tokenizer_list", "adapter_list", "vocoder"]
+
+    _optional_components = [
+        "safety_checker",
+        "feature_extractor",
+        "text_encoder_list",
+        "tokenizer_list",
+        "adapter_list",
+        "vocoder",
+    ]
 
     def __init__(
         self,
         vae: AutoencoderKL,
-        unet: UNet2DConditionModel,        
+        unet: UNet2DConditionModel,
         scheduler: KarrasDiffusionSchedulers,
         safety_checker: StableDiffusionSafetyChecker,
         feature_extractor: CLIPImageProcessor,
         text_encoder_list: Optional[List[Callable]] = None,
         tokenizer_list: Optional[List[Callable]] = None,
         vocoder: Generator = None,
-        requires_safety_checker: bool = False,        
+        requires_safety_checker: bool = False,
         adapter_list: Optional[List[Callable]] = None,
-        tokenizer_model_max_length: Optional[int] = 77, # 77 is the default value for the CLIPTokenizer(and set for other models)
+        tokenizer_model_max_length: Optional[
+            int
+        ] = 77,  # 77 is the default value for the CLIPTokenizer(and set for other models)
     ):
         super().__init__()
 
@@ -505,7 +584,6 @@ class AuffusionPipeline(DiffusionPipeline):
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
         self.register_to_config(requires_safety_checker=requires_safety_checker)
 
-
     @classmethod
     def from_pretrained(
         cls,
@@ -514,22 +592,23 @@ class AuffusionPipeline(DiffusionPipeline):
         device: str = "cuda",
     ):
         if not os.path.isdir(pretrained_model_name_or_path):
-            pretrained_model_name_or_path = snapshot_download(pretrained_model_name_or_path) 
-        
+            pretrained_model_name_or_path = snapshot_download(pretrained_model_name_or_path)
+
         vae = AutoencoderKL.from_pretrained(pretrained_model_name_or_path, subfolder="vae")
         unet = UNet2DConditionModel.from_pretrained(pretrained_model_name_or_path, subfolder="unet")
-        feature_extractor = CLIPImageProcessor.from_pretrained(pretrained_model_name_or_path, subfolder="feature_extractor")
+        feature_extractor = CLIPImageProcessor.from_pretrained(
+            pretrained_model_name_or_path, subfolder="feature_extractor"
+        )
         scheduler = PNDMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder="scheduler")
 
         vocoder = Generator.from_pretrained(pretrained_model_name_or_path, subfolder="vocoder").to(device, dtype)
 
         text_encoder_list, tokenizer_list, adapter_list = [], [], []
-        
+
         condition_json_path = os.path.join(pretrained_model_name_or_path, "condition_config.json")
         condition_json_list = json.loads(open(condition_json_path).read())
-        
+
         for i, condition_item in enumerate(condition_json_list):
-            
             # Load Condition Adapter
             text_encoder_path = os.path.join(pretrained_model_name_or_path, condition_item["text_encoder_name"])
             tokenizer = AutoTokenizer.from_pretrained(text_encoder_path)
@@ -545,7 +624,6 @@ class AuffusionPipeline(DiffusionPipeline):
             adapter_list.append(adapter)
             print(f"LOADING CONDITION ADAPTER {i}")
 
-
         pipeline = cls(
             vae=vae,
             unet=unet,
@@ -560,7 +638,6 @@ class AuffusionPipeline(DiffusionPipeline):
         pipeline = pipeline.to(device, dtype)
 
         return pipeline
-    
 
     def to(self, device, dtype=None):
         super().to(device, dtype)
@@ -569,13 +646,12 @@ class AuffusionPipeline(DiffusionPipeline):
 
         for text_encoder in self.text_encoder_list:
             text_encoder.to(device, dtype)
-       
+
         if self.adapter_list is not None:
             for adapter in self.adapter_list:
                 adapter.to(device, dtype)
 
         return self
-
 
     def enable_vae_slicing(self):
         r"""
@@ -680,7 +756,6 @@ class AuffusionPipeline(DiffusionPipeline):
                 return torch.device(module._hf_hook.execution_device)
         return self.device
 
-    
     def _encode_prompt(
         self,
         prompt,
@@ -691,10 +766,13 @@ class AuffusionPipeline(DiffusionPipeline):
         prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
     ):
-
-        assert len(self.text_encoder_list) == len(self.tokenizer_list), "Number of text_encoders must match number of tokenizers"
+        assert len(self.text_encoder_list) == len(
+            self.tokenizer_list
+        ), "Number of text_encoders must match number of tokenizers"
         if self.adapter_list is not None:
-            assert len(self.text_encoder_list) == len(self.adapter_list), "Number of text_encoders must match number of adapters"
+            assert len(self.text_encoder_list) == len(
+                self.adapter_list
+            ), "Number of text_encoders must match number of adapters"
 
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
@@ -715,12 +793,14 @@ class AuffusionPipeline(DiffusionPipeline):
                 for j in range(len(self.text_encoder_list)):
                     # get condition embedding using condition encoder
                     input_ids = self.tokenizer_list[j](prompt, return_tensors="pt").input_ids.to(device)
-                    cond_embs = self.text_encoder_list[j](input_ids).last_hidden_state # [bz, text_len, text_dim]
+                    cond_embs = self.text_encoder_list[j](input_ids).last_hidden_state  # [bz, text_len, text_dim]
                     # padding to max_length
-                    if cond_embs.shape[1] < self.tokenizer_model_max_length: 
-                        cond_embs = torch.functional.F.pad(cond_embs, (0, 0, 0, self.tokenizer_model_max_length - cond_embs.shape[1]), value=0)
+                    if cond_embs.shape[1] < self.tokenizer_model_max_length:
+                        cond_embs = torch.functional.F.pad(
+                            cond_embs, (0, 0, 0, self.tokenizer_model_max_length - cond_embs.shape[1]), value=0
+                        )
                     else:
-                        cond_embs = cond_embs[:, :self.tokenizer_model_max_length, :]
+                        cond_embs = cond_embs[:, : self.tokenizer_model_max_length, :]
 
                     # use condition adapter
                     if self.adapter_list is not None:
@@ -733,8 +813,7 @@ class AuffusionPipeline(DiffusionPipeline):
             prompt_embeds = torch.cat(prompt_embeds_list, dim=0)
             return prompt_embeds
 
-
-        if prompt_embeds is None:           
+        if prompt_embeds is None:
             prompt_embeds = get_prompt_embeds(prompt, device)
 
         prompt_embeds = prompt_embeds.to(dtype=self.unet.dtype, device=device)
@@ -745,7 +824,6 @@ class AuffusionPipeline(DiffusionPipeline):
         prompt_embeds = prompt_embeds.view(bs_embed * num_images_per_prompt, seq_len, -1)
 
         if do_classifier_free_guidance and negative_prompt_embeds is None:
-
             if negative_prompt is None:
                 negative_prompt_embeds = torch.zeros_like(prompt_embeds).to(dtype=prompt_embeds.dtype, device=device)
 
@@ -780,7 +858,6 @@ class AuffusionPipeline(DiffusionPipeline):
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
 
         return prompt_embeds
-            
 
     def run_safety_checker(self, image, device, dtype):
         if self.safety_checker is None:
@@ -825,7 +902,6 @@ class AuffusionPipeline(DiffusionPipeline):
         if accepts_generator:
             extra_step_kwargs["generator"] = generator
         return extra_step_kwargs
-    
 
     def check_inputs(
         self,
@@ -874,8 +950,6 @@ class AuffusionPipeline(DiffusionPipeline):
                     f" {negative_prompt_embeds.shape}."
                 )
 
-
-
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
         if isinstance(generator, list) and len(generator) != batch_size:
@@ -916,18 +990,15 @@ class AuffusionPipeline(DiffusionPipeline):
         guidance_rescale: float = 0.0,
         duration: Optional[float] = 10,
     ):
-       
         # 0. Default height and width to unet
         height = height or self.unet.config.sample_size * self.vae_scale_factor
         width = width or self.unet.config.sample_size * self.vae_scale_factor
         audio_length = int(duration * 16000)
 
-
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(
             prompt, height, width, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds
         )
-       
 
         # 2. Define call parameters
         if prompt is not None and isinstance(prompt, str):
@@ -951,9 +1022,9 @@ class AuffusionPipeline(DiffusionPipeline):
             do_classifier_free_guidance,
             negative_prompt,
             prompt_embeds=prompt_embeds,
-            negative_prompt_embeds=negative_prompt_embeds
+            negative_prompt_embeds=negative_prompt_embeds,
         )
-        
+
         # 4. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = self.scheduler.timesteps
@@ -1027,7 +1098,6 @@ class AuffusionPipeline(DiffusionPipeline):
         if hasattr(self, "final_offload_hook") and self.final_offload_hook is not None:
             self.final_offload_hook.offload()
 
-
         # Generate audio
         spectrograms, audios = [], []
         for img in image:
@@ -1037,15 +1107,15 @@ class AuffusionPipeline(DiffusionPipeline):
             spectrograms.append(spectrogram)
 
         # Convert to PIL
-        images = pt_to_numpy(image)    
+        images = pt_to_numpy(image)
         images = numpy_to_pil(images)
         images = [image_add_color(image) for image in images]
 
         if not return_dict:
             return (images, audios, spectrograms)
-                    
 
         return PipelineOutput(images=images, audios=audios, spectrograms=spectrograms)
+
 
 def retrieve_timesteps(
     scheduler,
@@ -1089,6 +1159,7 @@ def retrieve_timesteps(
         scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
         timesteps = scheduler.timesteps
     return timesteps, num_inference_steps
+
 
 class AuffusionNoAdapterPipeline(
     DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin, IPAdapterMixin, FromSingleFileMixin
@@ -1504,7 +1575,7 @@ class AuffusionNoAdapterPipeline(
                     )
                 image_embeds.append(single_image_embeds)
 
-        return image_embeds 
+        return image_embeds
 
     def encode_image(self, image, device, num_images_per_prompt, output_hidden_states=None):
         dtype = next(self.image_encoder.parameters()).dtype
@@ -1964,7 +2035,7 @@ class AuffusionNoAdapterPipeline(
         if self.do_classifier_free_guidance:
             if prompt_embeds.shape != negative_prompt_embeds.shape:
                 tmp_embeds = negative_prompt_embeds.clone()
-                tmp_embeds[:,0:1,:] = prompt_embeds
+                tmp_embeds[:, 0:1, :] = prompt_embeds
                 prompt_embeds = tmp_embeds
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
         # TODO

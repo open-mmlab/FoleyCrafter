@@ -1,8 +1,9 @@
+from typing import Optional, Tuple
+
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint
 
-from typing import Optional, Tuple
 
 class Attention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
@@ -108,7 +109,7 @@ class Attention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, hidden_size, intermediate_size, mult=4):
         super().__init__()
-        self.activation_fn = nn.SiLU() 
+        self.activation_fn = nn.SiLU()
         self.fc1 = nn.Linear(hidden_size, intermediate_size * mult)
         self.fc2 = nn.Linear(intermediate_size * mult, hidden_size)
 
@@ -118,15 +119,17 @@ class MLP(nn.Module):
         hidden_states = self.fc2(hidden_states)
         return hidden_states
 
+
 class Transformer(nn.Module):
     def __init__(self, depth=12):
         super().__init__()
         self.layers = nn.ModuleList([TransformerBlock() for _ in range(depth)])
+
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: torch.Tensor=None,
-        causal_attention_mask: torch.Tensor=None,
+        attention_mask: torch.Tensor = None,
+        causal_attention_mask: torch.Tensor = None,
         output_attentions: Optional[bool] = False,
     ) -> Tuple[torch.FloatTensor]:
         """
@@ -149,11 +152,22 @@ class Transformer(nn.Module):
 
         return hidden_states
 
+
 class TransformerBlock(nn.Module):
-    def __init__(self, hidden_size=512, num_attention_heads=12, attention_head_dim=64, attention_dropout=0.0, dropout=0.0, eps=1e-5):
+    def __init__(
+        self,
+        hidden_size=512,
+        num_attention_heads=12,
+        attention_head_dim=64,
+        attention_dropout=0.0,
+        dropout=0.0,
+        eps=1e-5,
+    ):
         super().__init__()
         self.embed_dim = hidden_size
-        self.self_attn = Attention(hidden_size=hidden_size, num_attention_heads=num_attention_heads, attention_head_dim=attention_head_dim)
+        self.self_attn = Attention(
+            hidden_size=hidden_size, num_attention_heads=num_attention_heads, attention_head_dim=attention_head_dim
+        )
         self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=eps)
         self.mlp = MLP(hidden_size=hidden_size, intermediate_size=hidden_size)
         self.layer_norm2 = nn.LayerNorm(self.embed_dim, eps=eps)
@@ -161,8 +175,8 @@ class TransformerBlock(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: torch.Tensor=None,
-        causal_attention_mask: torch.Tensor=None,
+        attention_mask: torch.Tensor = None,
+        causal_attention_mask: torch.Tensor = None,
         output_attentions: Optional[bool] = False,
     ) -> Tuple[torch.FloatTensor]:
         """
@@ -197,12 +211,23 @@ class TransformerBlock(nn.Module):
             outputs += (attn_weights,)
 
         return outputs[0]
-    
+
+
 class DiffusionTransformerBlock(nn.Module):
-    def __init__(self, hidden_size=512, num_attention_heads=12, attention_head_dim=64, attention_dropout=0.0, dropout=0.0, eps=1e-5):
+    def __init__(
+        self,
+        hidden_size=512,
+        num_attention_heads=12,
+        attention_head_dim=64,
+        attention_dropout=0.0,
+        dropout=0.0,
+        eps=1e-5,
+    ):
         super().__init__()
         self.embed_dim = hidden_size
-        self.self_attn = Attention(hidden_size=hidden_size, num_attention_heads=num_attention_heads, attention_head_dim=attention_head_dim)
+        self.self_attn = Attention(
+            hidden_size=hidden_size, num_attention_heads=num_attention_heads, attention_head_dim=attention_head_dim
+        )
         self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=eps)
         self.mlp = MLP(hidden_size=hidden_size, intermediate_size=hidden_size)
         self.layer_norm2 = nn.LayerNorm(self.embed_dim, eps=eps)
@@ -211,8 +236,8 @@ class DiffusionTransformerBlock(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: torch.Tensor=None,
-        causal_attention_mask: torch.Tensor=None,
+        attention_mask: torch.Tensor = None,
+        causal_attention_mask: torch.Tensor = None,
         output_attentions: Optional[bool] = False,
     ) -> Tuple[torch.FloatTensor]:
         """
@@ -248,7 +273,8 @@ class DiffusionTransformerBlock(nn.Module):
         if output_attentions:
             outputs += (attn_weights,)
 
-        return outputs[0][:,0:1,...]
+        return outputs[0][:, 0:1, ...]
+
 
 class V2AMapperMLP(nn.Module):
     def __init__(self, input_dim=512, output_dim=512, expansion_rate=4):
@@ -257,15 +283,15 @@ class V2AMapperMLP(nn.Module):
         self.silu = nn.SiLU()
         self.layer_norm = nn.LayerNorm(input_dim * expansion_rate)
         self.linear2 = nn.Linear(input_dim * expansion_rate, output_dim)
-    
-    def forward(self, x):
 
+    def forward(self, x):
         x = self.linear(x)
         x = self.silu(x)
-        x = self.layer_norm(x)    
+        x = self.layer_norm(x)
         x = self.linear2(x)
-        
+
         return x
+
 
 class ImageProjModel(torch.nn.Module):
     """Projection Model"""
@@ -297,24 +323,25 @@ class ImageProjModel(torch.nn.Module):
         )
         clip_extra_context_tokens = self.norm(clip_extra_context_tokens)
         return clip_extra_context_tokens
-    
+
+
 class VisionAudioAdapter(torch.nn.Module):
     def __init__(
-            self,
-            embedding_size=768,
-            expand_dim=4,
-            token_num=4,
-        ):
+        self,
+        embedding_size=768,
+        expand_dim=4,
+        token_num=4,
+    ):
         super().__init__()
 
         self.mapper = V2AMapperMLP(
-            embedding_size, 
-            embedding_size, 
+            embedding_size,
+            embedding_size,
             expansion_rate=expand_dim,
         )
 
         self.proj = ImageProjModel(
-            cross_attention_dim=embedding_size, 
+            cross_attention_dim=embedding_size,
             clip_embeddings_dim=embedding_size,
             clip_extra_context_tokens=token_num,
         )
@@ -323,5 +350,3 @@ class VisionAudioAdapter(torch.nn.Module):
         image_embeds = self.mapper(image_embeds)
         image_embeds = self.proj(image_embeds)
         return image_embeds
-
-    
