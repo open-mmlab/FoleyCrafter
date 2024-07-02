@@ -4,7 +4,7 @@
 
 <div align="center">
 
-[![arXiv](https://img.shields.io/badge/arXiv-xxxx.xxxxx-b31b1b.svg)](https://arxiv.org/abs/xxxx.xxxxx)
+[![arXiv](https://img.shields.io/badge/arXiv-2407.01494-b31b1b.svg)](https://arxiv.org/abs/2407.01494)
 [![Project Page](https://img.shields.io/badge/FoleyCrafter-Website-green)](https://foleycrafter.github.io)
 <a target="_blank" href="https://huggingface.co/spaces/ymzhang319/FoleyCrafter">
   <img src="https://huggingface.co/datasets/huggingface/badges/raw/main/open-in-hf-spaces-sm.svg" alt="Open in HugginFace"/>
