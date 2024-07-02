@@ -34,7 +34,7 @@ def args_parse():
     config.add_argument("--temporal_scale", type=float, default=1.0, help="temporal align scale")
     config.add_argument("--semantic_scale", type=float, default=1.0, help="visual content scale")
     config.add_argument("--input", type=str, default="examples/sora", help="input video folder path")
-    config.add_argument("--ckpt", type=str, default="models/", help="checkpoints folder path")
+    config.add_argument("--ckpt", type=str, default="checkpoints/", help="checkpoints folder path")
     config.add_argument("--save_dir", type=str, default="output/", help="generation result save path")
     config.add_argument(
         "--pretrain",

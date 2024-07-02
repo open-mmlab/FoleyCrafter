@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from foleycrafter.models.onset import VideoOnsetNet
+from ..onset import VideoOnsetNet
 
 
 class TimeDetector(nn.Module):

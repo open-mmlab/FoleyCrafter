@@ -1,12 +1,9 @@
 # Copied from specvqgan/onset_baseline/models/video_onset_net.py
-import sys
 
 import torch
 import torch.nn as nn
 
-
-sys.path.append("./")
-from foleycrafter.models.onset import r2plus1d18KeepTemp
+from .r2plus1d_18 import r2plus1d18KeepTemp
 
 
 class VideoOnsetNet(nn.Module):

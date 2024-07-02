@@ -2,7 +2,6 @@ import glob
 import io
 import pickle
 import random
-import sys
 
 import numpy as np
 import torch
@@ -10,9 +9,6 @@ import torch.distributed as dist
 import torchaudio
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
-
-
-sys.path.append("./")
 
 
 def zero_rank_print(s):

@@ -86,7 +86,7 @@ Put checkpoints as follows:
 You can launch the Gradio interface for FoleyCrafter by running the following command:
 
 ```bash
-python app.py
+python app.py --share
 ```
 
 

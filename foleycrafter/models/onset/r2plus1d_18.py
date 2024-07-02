@@ -1,12 +1,9 @@
 # Copied from specvqgan/onset_baseline/models/r2plus1d_18.py
-import sys
 
 import torch
 import torch.nn as nn
 
-
-sys.path.append("..")
-from foleycrafter.models.onset.resnet import r2plus1d_18
+from .resnet import r2plus1d_18
 
 
 class r2plus1d18KeepTemp(nn.Module):
