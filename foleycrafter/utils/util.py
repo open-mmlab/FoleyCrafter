@@ -181,14 +181,14 @@ def get_frames_in_video(video_path: str, onset_list, frame_nums=1024, audio_leng
 
 
 def save_multimodal(video, audio, output_path, audio_fps: int = 16000, video_fps: int = 8, remove_audio: bool = True):
-    imgs = [img for img in video]
+    imgs = list(video)
     # if audio.shape[0] == 1 or audio.shape[0] == 2:
     #     audio = audio.T #[len, channel]
     # audio = np.repeat(audio, 2, axis=1)
     output_dir = osp.dirname(output_path)
     try:
         wavfile.write(osp.join(output_dir, "audio.wav"), audio_fps, audio)
-    except:
+    except Exception:
         sf.write(osp.join(output_dir, "audio.wav"), audio, audio_fps)
     audio_clip = AudioFileClip(osp.join(output_dir, "audio.wav"))
     # audio_clip = AudioArrayClip(audio, fps=audio_fps)
@@ -201,14 +201,14 @@ def save_multimodal(video, audio, output_path, audio_fps: int = 16000, video_fps
 
 
 def save_multimodal_by_frame(video, audio, output_path, audio_fps: int = 16000):
-    imgs = [img for img in video]
+    imgs = list(video)
     # if audio.shape[0] == 1 or audio.shape[0] == 2:
     #     audio = audio.T #[len, channel]
     # audio = np.repeat(audio, 2, axis=1)
     # output_dir = osp.dirname(output_path)
     output_dir = output_path
     wavfile.write(osp.join(output_dir, "audio.wav"), audio_fps, audio)
-    audio_clip = AudioFileClip(osp.join(output_dir, "audio.wav"))
+    # audio_clip = AudioFileClip(osp.join(output_dir, "audio.wav"))
     # audio_clip = AudioArrayClip(audio, fps=audio_fps)
     os.makedirs(osp.join(output_dir, "frames"), exist_ok=True)
     for num, img in enumerate(imgs):
@@ -1080,7 +1080,7 @@ def assign_to_checkpoint(
             checkpoint[new_path] = old_checkpoint[path["old"]][:, :, 0]
         elif "to_out.0.weight" in new_path:
             checkpoint[new_path] = old_checkpoint[path["old"]].squeeze()
-        elif any([qkv in new_path for qkv in ["to_q", "to_k", "to_v"]]):
+        elif any(qkv in new_path for qkv in ["to_q", "to_k", "to_v"]):
             checkpoint[new_path] = old_checkpoint[path["old"]].squeeze()
         else:
             checkpoint[new_path] = old_checkpoint[path["old"]]
@@ -1606,13 +1606,13 @@ def convert_lora_model_level(
             pair_keys.append(key.replace("lora_up", "lora_down"))
 
         # update weight
-        # NOTE: load lycon, meybe have bugs :(
+        # NOTE: load lycon, maybe have bugs :(
         if "conv_in" in pair_keys[0]:
             weight_up = state_dict[pair_keys[0]].to(torch.float32)
             weight_down = state_dict[pair_keys[1]].to(torch.float32)
             weight_up = weight_up.view(weight_up.size(0), -1)
             weight_down = weight_down.view(weight_down.size(0), -1)
-            shape = [e for e in curr_layer.weight.data.shape]
+            shape = list(curr_layer.weight.data.shape)
             shape[1] = 4
             curr_layer.weight.data[:, :4, ...] += alpha * (weight_up @ weight_down).view(*shape)
         elif "conv" in pair_keys[0]:
@@ -1620,7 +1620,7 @@ def convert_lora_model_level(
             weight_down = state_dict[pair_keys[1]].to(torch.float32)
             weight_up = weight_up.view(weight_up.size(0), -1)
             weight_down = weight_down.view(weight_down.size(0), -1)
-            shape = [e for e in curr_layer.weight.data.shape]
+            shape = list(curr_layer.weight.data.shape)
             curr_layer.weight.data += alpha * (weight_up @ weight_down).view(*shape)
         elif len(state_dict[pair_keys[0]].shape) == 4:
             weight_up = state_dict[pair_keys[0]].squeeze(3).squeeze(2).to(torch.float32)

@@ -401,4 +401,4 @@ Please check [Apache-2.0 license](./LICENSE.txt) for details.
 ## Acknowledgements
 The code is built upon [Auffusion](https://github.com/happylittlecat2333/Auffusion), [CondFoleyGen](https://github.com/XYPB/CondFoleyGen) and [SpecVQGAN](https://github.com/v-iashin/SpecVQGAN).
 
-We recommend a professional and user-frienly project [Amphion]()
+We recommend a toolkit for Audio, Music, and Speech Generation [Amphion](https://github.com/open-mmlab/Amphion) :gift_heart:.

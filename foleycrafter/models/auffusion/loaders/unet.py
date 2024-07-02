@@ -62,10 +62,10 @@ class VPAdapterImageProjection(nn.Module):
         #  1. a tensor (deprecated) with shape [batch_size, embed_dim] or [batch_size, sequence_length, embed_dim]
         #  2. list of `n` tensors where `n` is number of ip-adapters, each tensor can hae shape [batch_size, num_images, embed_dim] or [batch_size, num_images, sequence_length, embed_dim]
         if not isinstance(image_embeds, list):
-            deprecation_message = (
-                "You have passed a tensor as `image_embeds`.This is deprecated and will be removed in a future release."
-                " Please make sure to update your script to pass `image_embeds` as a list of tensors to suppress this warning."
-            )
+            # deprecation_message = (
+            #     "You have passed a tensor as `image_embeds`.This is deprecated and will be removed in a future release."
+            #     " Please make sure to update your script to pass `image_embeds` as a list of tensors to suppress this warning."
+            # )
             image_embeds = [image_embeds.unsqueeze(1)]
 
         if len(image_embeds) != len(self.image_projection_layers):
@@ -97,10 +97,10 @@ class MultiIPAdapterImageProjection(nn.Module):
         #  1. a tensor (deprecated) with shape [batch_size, embed_dim] or [batch_size, sequence_length, embed_dim]
         #  2. list of `n` tensors where `n` is number of ip-adapters, each tensor can hae shape [batch_size, num_images, embed_dim] or [batch_size, num_images, sequence_length, embed_dim]
         if not isinstance(image_embeds, list):
-            deprecation_message = (
-                "You have passed a tensor as `image_embeds`.This is deprecated and will be removed in a future release."
-                " Please make sure to update your script to pass `image_embeds` as a list of tensors to suppress this warning."
-            )
+            # deprecation_message = (
+            #     "You have passed a tensor as `image_embeds`.This is deprecated and will be removed in a future release."
+            #     " Please make sure to update your script to pass `image_embeds` as a list of tensors to suppress this warning."
+            # )
             image_embeds = [image_embeds.unsqueeze(1)]
 
         if len(image_embeds) != len(self.image_projection_layers):

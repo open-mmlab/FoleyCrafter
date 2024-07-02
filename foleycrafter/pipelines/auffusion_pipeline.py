@@ -38,7 +38,7 @@ from transformers import (
     PretrainedConfig,
 )
 
-from diffusers import AutoencoderKL, PNDMScheduler
+from diffusers import PNDMScheduler
 from diffusers.configuration_utils import FrozenDict
 from diffusers.image_processor import PipelineImageInput, VaeImageProcessor
 from diffusers.loaders import FromSingleFileMixin, LoraLoaderMixin, TextualInversionLoaderMixin
@@ -481,7 +481,7 @@ def numpy_to_pil(images: np.ndarray) -> PIL.Image.Image:
 
 def image_add_color(spec_img):
     cmap = plt.get_cmap("viridis")
-    cmap_r = cmap.reversed()
+    # cmap_r = cmap.reversed()
     image = cmap(np.array(spec_img)[:, :, 0])[:, :, :3]  # 省略透明度通道
     image = (image - image.min()) / (image.max() - image.min())
     image = PIL.Image.fromarray(np.uint8(image * 255))

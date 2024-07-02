@@ -106,7 +106,13 @@ class AudioSetStrong(Dataset):
             except Exception:
                 zero_rank_print(" >>> load error <<<")
                 idx = random.randint(0, self.length - 1)
-        sample = dict(mel=mel, audio_info=audio_info, text_embeds=text_embeds, prompts=prompts, videos=videos)
+        sample = {
+            "mel": mel,
+            "audio_info": audio_info,
+            "text_embeds": text_embeds,
+            "prompts": prompts,
+            "videos": videos,
+        }
         return sample
 
 
@@ -130,7 +136,7 @@ class VGGSound(Dataset):
 
         # audio_embeds  = embeds['audio_embeds']
         visual_embeds = visual_embeds["visual_embeds"]
-        video_name = embeds["video_name"]
+        # video_name = embeds["video_name"]
         text = embeds["text"]
         mel = embeds["mel"]
 
@@ -149,5 +155,5 @@ class VGGSound(Dataset):
             except Exception:
                 zero_rank_print("load error")
                 idx = random.randint(0, self.length - 1)
-        sample = dict(visual_embeds=visual_embeds, audio=audio, text=text)
+        sample = {"visual_embeds": visual_embeds, "audio": audio, "text": text}
         return sample
