@@ -30,9 +30,8 @@ def args_parse():
     config.add_argument("--prompt", type=str, default="", help="prompt for audio generation")
     config.add_argument("--nprompt", type=str, default="", help="negative prompt for audio generation")
     config.add_argument("--seed", type=int, default=42, help="ramdom seed")
-    config.add_argument("--temporal_align", action="store_true", help="use temporal adapter or not")
-    config.add_argument("--temporal_scale", type=float, default=1.0, help="temporal align scale")
     config.add_argument("--semantic_scale", type=float, default=1.0, help="visual content scale")
+    config.add_argument("--temporal_scale", type=float, default=0.2, help="temporal align scale")
     config.add_argument("--input", type=str, default="examples/sora", help="input video folder path")
     config.add_argument("--ckpt", type=str, default="checkpoints/", help="checkpoints folder path")
     config.add_argument("--save_dir", type=str, default="output/", help="generation result save path")
@@ -55,7 +54,7 @@ def build_models(config):
 
     fc_ckpt = "ymzhang319/FoleyCrafter"
     if not os.path.isdir(fc_ckpt):
-        fc_ckpt = snapshot_download(fc_ckpt, local_dir="models/")
+        fc_ckpt = snapshot_download(fc_ckpt, local_dir=config.ckpt)
 
     # ckpt path
     temporal_ckpt_path = osp.join(config.ckpt, "temporal_adapter.ckpt")
@@ -87,7 +86,7 @@ def build_models(config):
 
     # load semantic adapter
     pipe.load_ip_adapter(
-        "./models/semantic", subfolder="", weight_name="semantic_adapter.bin", image_encoder_folder=None
+        osp.join(config.ckpt, "semantic"), subfolder="", weight_name="semantic_adapter.bin", image_encoder_folder=None
     )
     ip_adapter_weight = config.semantic_scale
     pipe.set_ip_adapter_scale(ip_adapter_weight)
@@ -96,7 +95,7 @@ def build_models(config):
 
 
 def run_inference(config, pipe, vocoder, time_detector):
-    controlnet_conditioning_scale = config.temporal_scale if config.temporal_align else 0.0
+    controlnet_conditioning_scale = config.temporal_scale
     os.makedirs(config.save_dir, exist_ok=True)
 
     input_list = glob.glob(f"{config.input}/*.mp4")
