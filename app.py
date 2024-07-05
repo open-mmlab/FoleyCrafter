@@ -44,6 +44,7 @@ parser.add_argument("--port", type=int, default=7860)
 parser.add_argument("--share", type=bool, default=False)
 
 parser.add_argument("--save-path", default="samples")
+parser.add_argument("--ckpt", type=str, default="checkpoints/")
 
 args = parser.parse_args()
 
@@ -55,7 +56,7 @@ class FoleyController:
     def __init__(self):
         # config dirs
         self.basedir = os.getcwd()
-        self.model_dir = os.path.join(self.basedir, "checkpoints")
+        self.model_dir = os.path.join(self.basedir, args.ckpt)
         self.savedir = os.path.join(self.basedir, args.save_path, datetime.now().strftime("Gradio-%Y-%m-%dT%H-%M-%S"))
         self.savedir_sample = os.path.join(self.savedir, "sample")
         os.makedirs(self.savedir, exist_ok=True)

@@ -54,7 +54,7 @@ def build_models(config):
 
     fc_ckpt = "ymzhang319/FoleyCrafter"
     if not os.path.isdir(fc_ckpt):
-        fc_ckpt = snapshot_download(fc_ckpt, local_dir="checkpoints/")
+        fc_ckpt = snapshot_download(fc_ckpt, local_dir=config.ckpt)
 
     # ckpt path
     temporal_ckpt_path = osp.join(config.ckpt, "temporal_adapter.ckpt")
@@ -86,7 +86,7 @@ def build_models(config):
 
     # load semantic adapter
     pipe.load_ip_adapter(
-        "./checkpoints/semantic", subfolder="", weight_name="semantic_adapter.bin", image_encoder_folder=None
+        osp.join(config.ckpt, "semantic"), subfolder="", weight_name="semantic_adapter.bin", image_encoder_folder=None
     )
     ip_adapter_weight = config.semantic_scale
     pipe.set_ip_adapter_scale(ip_adapter_weight)
