@@ -360,7 +360,7 @@ options:
   -h, --help            show this help message and exit
   --prompt PROMPT       prompt for audio generation
   --nprompt NPROMPT     negative prompt for audio generation
-  --seed SEED           ramdom seed
+  --seed SEED           random seed
   --temporal_align TEMPORAL_ALIGN
                         use temporal adapter or not
   --temporal_scale TEMPORAL_SCALE
