@@ -397,7 +397,8 @@ options:
 **Yanhong Zeng**: zengyanhong@pjlab.org.cn
 
 ## LICENSE
-Please check [Apache-2.0 license](./LICENSE.txt) for details.
+Please check [LICENSE](./LICENSE) for the part of FoleyCrafter for details.
+If you are using it for commercial purposes, please check the license of the [Auffusion](https://github.com/happylittlecat2333/Auffusion).
 
 ## Acknowledgements
 The code is built upon [Auffusion](https://github.com/happylittlecat2333/Auffusion), [CondFoleyGen](https://github.com/XYPB/CondFoleyGen) and [SpecVQGAN](https://github.com/v-iashin/SpecVQGAN).
