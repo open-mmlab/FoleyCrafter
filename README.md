@@ -377,13 +377,15 @@ options:
 
 ## BibTex
 ```
-@misc{zhang2024pia,
-  title={FoleyCrafter: Bring Silent Videos to Life with Lifelike and Synchronized Sounds},
-  author={Yiming Zhang, Yicheng Gu, Yanhong Zeng, Zhening Xing, Yuancheng Wang, Zhizheng Wu, Kai Chen},
-  year={2024},
-  eprint={2407.01494},
-  archivePrefix={arXiv},
-  primaryClass={cs.CV}
+@article{zhang2026foleycrafter,
+  title={Foleycrafter: Bring silent videos to life with lifelike and synchronized sounds},
+  author={Zhang, Yiming and Gu, Yicheng and Zeng, Yanhong and Xing, Zhening and Wang, Yuancheng and Wu, Zhizheng and Liu, Bin and Chen, Kai},
+  journal={International Journal of Computer Vision},
+  volume={134},
+  number={1},
+  pages={46},
+  year={2026},
+  publisher={Springer}
 }
 ```
 
