@@ -36,10 +36,9 @@ from diffusers.utils import (
     set_adapter_layers,
     set_weights_and_activate_adapters,
 )
-from foleycrafter.models.auffusion.attention_processor import (
+from foleycrafter.models.audio_generator.attention_processor import (
     AttnProcessor2_0,
     IPAdapterAttnProcessor2_0,
-    VPTemporalAdapterAttnProcessor2_0,
 )
 
 
@@ -48,41 +47,6 @@ if is_accelerate_available():
     from accelerate.hooks import AlignDevicesHook, CpuOffload, remove_hook_from_module
 
 logger = logging.get_logger(__name__)
-
-
-class VPAdapterImageProjection(nn.Module):
-    def __init__(self, IPAdapterImageProjectionLayers: Union[List[nn.Module], Tuple[nn.Module]]):
-        super().__init__()
-        self.image_projection_layers = nn.ModuleList(IPAdapterImageProjectionLayers)
-
-    def forward(self, image_embeds: List[torch.FloatTensor]):
-        projected_image_embeds = []
-
-        # currently, we accept `image_embeds` as
-        #  1. a tensor (deprecated) with shape [batch_size, embed_dim] or [batch_size, sequence_length, embed_dim]
-        #  2. list of `n` tensors where `n` is number of ip-adapters, each tensor can hae shape [batch_size, num_images, embed_dim] or [batch_size, num_images, sequence_length, embed_dim]
-        if not isinstance(image_embeds, list):
-            # deprecation_message = (
-            #     "You have passed a tensor as `image_embeds`.This is deprecated and will be removed in a future release."
-            #     " Please make sure to update your script to pass `image_embeds` as a list of tensors to suppress this warning."
-            # )
-            image_embeds = [image_embeds.unsqueeze(1)]
-
-        if len(image_embeds) != len(self.image_projection_layers):
-            raise ValueError(
-                f"image_embeds must have the same length as image_projection_layers, got {len(image_embeds)} and {len(self.image_projection_layers)}"
-            )
-
-        for image_embed, image_projection_layer in zip(image_embeds, self.image_projection_layers):
-            image_embed = image_embed.squeeze(1)
-            batch_size, num_images = image_embed.shape[0], image_embed.shape[1]
-            image_embed = image_embed.reshape((batch_size * num_images,) + image_embed.shape[2:])
-            image_embed = image_projection_layer(image_embed)
-            image_embed = image_embed.reshape((batch_size, num_images) + image_embed.shape[1:])
-
-            projected_image_embeds.append(image_embed)
-
-        return projected_image_embeds
 
 
 class MultiIPAdapterImageProjection(nn.Module):
@@ -783,93 +747,6 @@ class UNet2DConditionLoadersMixin:
 
         return image_projection
 
-    def _convert_ip_adapter_attn_to_diffusers_VPAdapter(self, state_dicts, low_cpu_mem_usage=False):
-        from diffusers.models.attention_processor import (
-            AttnProcessor,
-            IPAdapterAttnProcessor,
-        )
-
-        if low_cpu_mem_usage:
-            if is_accelerate_available():
-                from accelerate import init_empty_weights
-
-            else:
-                low_cpu_mem_usage = False
-                logger.warning(
-                    "Cannot initialize model with low cpu memory usage because `accelerate` was not found in the"
-                    " environment. Defaulting to `low_cpu_mem_usage=False`. It is strongly recommended to install"
-                    " `accelerate` for faster and less memory-intense model loading. You can do so with: \n```\npip"
-                    " install accelerate\n```\n."
-                )
-
-        if low_cpu_mem_usage is True and not is_torch_version(">=", "1.9.0"):
-            raise NotImplementedError(
-                "Low memory initialization requires torch >= 1.9.0. Please either update your PyTorch version or set"
-                " `low_cpu_mem_usage=False`."
-            )
-
-        # set ip-adapter cross-attention processors & load state_dict
-        attn_procs = {}
-        key_id = 1
-        init_context = init_empty_weights if low_cpu_mem_usage else nullcontext
-        for name in self.attn_processors.keys():
-            cross_attention_dim = None if name.endswith("attn1.processor") else self.config.cross_attention_dim
-            if name.startswith("mid_block"):
-                hidden_size = self.config.block_out_channels[-1]
-            elif name.startswith("up_blocks"):
-                block_id = int(name[len("up_blocks.")])
-                hidden_size = list(reversed(self.config.block_out_channels))[block_id]
-            elif name.startswith("down_blocks"):
-                block_id = int(name[len("down_blocks.")])
-                hidden_size = self.config.block_out_channels[block_id]
-
-            if cross_attention_dim is None or "motion_modules" in name or "fuser" in name:
-                attn_processor_class = (
-                    AttnProcessor2_0 if hasattr(F, "scaled_dot_product_attention") else AttnProcessor
-                )
-                attn_procs[name] = attn_processor_class()
-            else:
-                attn_processor_class = (
-                    VPTemporalAdapterAttnProcessor2_0
-                    if hasattr(F, "scaled_dot_product_attention")
-                    else IPAdapterAttnProcessor
-                )
-                num_image_text_embeds = []
-                for state_dict in state_dicts:
-                    if "proj.weight" in state_dict["image_proj"]:
-                        # IP-Adapter
-                        num_image_text_embeds += [4]
-                    elif "proj.3.weight" in state_dict["image_proj"]:
-                        # IP-Adapter Full Face
-                        num_image_text_embeds += [257]  # 256 CLIP tokens + 1 CLS token
-                    else:
-                        # IP-Adapter Plus
-                        num_image_text_embeds += [state_dict["image_proj"]["latents"].shape[1]]
-
-                with init_context():
-                    attn_procs[name] = attn_processor_class(
-                        hidden_size=hidden_size,
-                        cross_attention_dim=cross_attention_dim,
-                        scale=1.0,
-                        num_tokens=num_image_text_embeds,
-                    )
-
-                value_dict = {}
-                for i, state_dict in enumerate(state_dicts):
-                    value_dict.update({f"to_k_ip.{i}.weight": state_dict["ip_adapter"][f"{key_id}.to_k_ip.weight"]})
-                    value_dict.update({f"to_v_ip.{i}.weight": state_dict["ip_adapter"][f"{key_id}.to_v_ip.weight"]})
-
-                if not low_cpu_mem_usage:
-                    attn_procs[name].load_state_dict(value_dict)
-                else:
-                    device = next(iter(value_dict.values())).device
-                    dtype = next(iter(value_dict.values())).dtype
-                    load_model_dict_into_meta(attn_procs[name], value_dict, device=device, dtype=dtype)
-
-                key_id += 2
-
-        return attn_procs
-
     def _convert_ip_adapter_attn_to_diffusers(self, state_dicts, low_cpu_mem_usage=False):
         from diffusers.models.attention_processor import (
             AttnProcessor,
@@ -968,25 +845,6 @@ class UNet2DConditionLoadersMixin:
             image_projection_layers.append(image_projection_layer)
 
         self.encoder_hid_proj = MultiIPAdapterImageProjection(image_projection_layers)
-        self.config.encoder_hid_dim_type = "ip_image_proj"
-
-        self.to(dtype=self.dtype, device=self.device)
-
-    def _load_ip_adapter_weights_VPAdapter(self, state_dicts, low_cpu_mem_usage=False):
-        attn_procs = self._convert_ip_adapter_attn_to_diffusers_VPAdapter(
-            state_dicts, low_cpu_mem_usage=low_cpu_mem_usage
-        )
-        self.set_attn_processor(attn_procs)
-
-        # convert IP-Adapter Image Projection layers to diffusers
-        image_projection_layers = []
-        for state_dict in state_dicts:
-            image_projection_layer = self._convert_ip_adapter_image_proj_to_diffusers(
-                state_dict["image_proj"], low_cpu_mem_usage=low_cpu_mem_usage
-            )
-            image_projection_layers.append(image_projection_layer)
-
-        self.encoder_hid_proj = VPAdapterImageProjection(image_projection_layers)
         self.config.encoder_hid_dim_type = "ip_image_proj"
 
         self.to(dtype=self.dtype, device=self.device)

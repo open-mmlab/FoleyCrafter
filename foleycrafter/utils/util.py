@@ -28,8 +28,8 @@ from transformers import CLIPTextModel, CLIPTokenizer
 from diffusers import ControlNetModel
 from diffusers.models import AutoencoderKL
 from diffusers.schedulers import DDIMScheduler, PNDMScheduler
-from foleycrafter.models.auffusion_unet import UNet2DConditionModel as af_UNet2DConditionModel
-from foleycrafter.pipelines.pipeline_controlnet import StableDiffusionControlNetPipeline
+from foleycrafter.models.audio_generator.unet import UNet2DConditionModel
+from foleycrafter.pipelines.foleycrafter_pipeline import StableDiffusionControlNetPipeline
 
 
 def zero_rank_print(s):
@@ -41,7 +41,7 @@ def build_foleycrafter(
     pretrained_model_name_or_path: str = "auffusion/auffusion-full-no-adapter",
 ) -> StableDiffusionControlNetPipeline:
     vae = AutoencoderKL.from_pretrained(pretrained_model_name_or_path, subfolder="vae")
-    unet = af_UNet2DConditionModel.from_pretrained(pretrained_model_name_or_path, subfolder="unet")
+    unet = UNet2DConditionModel.from_pretrained(pretrained_model_name_or_path, subfolder="unet")
     scheduler = PNDMScheduler.from_pretrained(pretrained_model_name_or_path, subfolder="scheduler")
     tokenizer = CLIPTokenizer.from_pretrained(pretrained_model_name_or_path, subfolder="tokenizer")
     text_encoder = CLIPTextModel.from_pretrained(pretrained_model_name_or_path, subfolder="text_encoder")

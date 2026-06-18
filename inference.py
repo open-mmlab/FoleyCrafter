@@ -11,10 +11,10 @@ from huggingface_hub import snapshot_download
 from moviepy.editor import AudioFileClip, VideoFileClip
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 
+from foleycrafter.models.audio_generator.vocoder import Generator
 from foleycrafter.models.onset import torch_utils
 from foleycrafter.models.time_detector.model import VideoOnsetNet
-from foleycrafter.pipelines.auffusion_pipeline import Generator, denormalize_spectrogram
-from foleycrafter.utils.util import build_foleycrafter, read_frames_with_moviepy
+from foleycrafter.utils.util import build_foleycrafter, denormalize_spectrogram, read_frames_with_moviepy
 
 
 vision_transform_list = [
@@ -86,7 +86,10 @@ def build_models(config):
 
     # load semantic adapter
     pipe.load_ip_adapter(
-        osp.join(config.ckpt, "semantic"), subfolder="", weight_name="semantic_adapter.bin", image_encoder_folder=None
+        osp.join(config.ckpt, "semantic"),
+        subfolder="",
+        weight_name="semantic_adapter.bin",
+        image_encoder_folder=None,
     )
     ip_adapter_weight = config.semantic_scale
     pipe.set_ip_adapter_scale(ip_adapter_weight)

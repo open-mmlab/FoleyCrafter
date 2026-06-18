@@ -13,10 +13,10 @@ from moviepy.editor import AudioFileClip, VideoFileClip
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 
 from diffusers import DDIMScheduler, EulerDiscreteScheduler, PNDMScheduler
+from foleycrafter.models.audio_generator.vocoder import Generator
 from foleycrafter.models.onset import torch_utils
 from foleycrafter.models.time_detector.model import VideoOnsetNet
-from foleycrafter.pipelines.auffusion_pipeline import Generator, denormalize_spectrogram
-from foleycrafter.utils.util import build_foleycrafter, read_frames_with_moviepy
+from foleycrafter.utils.util import build_foleycrafter, denormalize_spectrogram, read_frames_with_moviepy
 
 
 os.environ["GRADIO_TEMP_DIR"] = "./tmp"
